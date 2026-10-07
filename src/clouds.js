@@ -4,7 +4,6 @@ import * as THREE from 'three';
 // Дрейфуют по ветру, «дышат», уходят за край поля и возвращаются с другой стороны.
 // Три слоя: море облаков под уровнем, редкие облака высоко над ним и облака вокруг.
 // Все шары рисуются одним InstancedMesh — это один вызов отрисовки.
-const COUNT = 36, PUFFS = 7;
 const WIND_X = 3.4, WIND_Z = 1.2;
 
 function rng(seed) {
@@ -13,7 +12,8 @@ function rng(seed) {
 }
 const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-export function createClouds(scene) {
+export function createClouds(scene, opts = {}) {
+  const COUNT = opts.count ?? 36, PUFFS = opts.puffs ?? 7; // в лёгком режиме облаков меньше и они проще
   const R = rng(2024);
   const mesh = new THREE.InstancedMesh(
     new THREE.SphereGeometry(1, 7, 5),
