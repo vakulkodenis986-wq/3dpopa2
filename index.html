@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>N64 Parkour</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; color: #fff; font-family: "Courier New", monospace; }
+    canvas { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; touch-action: none; }
+    #hud, #msg, #help, #toast, #edinfo { pointer-events: none; }
+    #hud { position: fixed; left: 12px; top: 10px; font-size: 20px; font-weight: bold; text-shadow: 2px 2px 0 #000; white-space: pre; line-height: 1.35; }
+    #edinfo { position: fixed; left: 12px; top: 10px; display: none; font-size: 15px; font-weight: bold; text-shadow: 2px 2px 0 #000; white-space: pre; line-height: 1.45; }
+    #msg { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; font-size: 30px; font-weight: bold; line-height: 1.5; text-shadow: 3px 3px 0 #000; }
+    #toast { position: fixed; left: 50%; top: 16%; transform: translateX(-50%); max-width: 70vw; text-align: center; font-size: 22px; font-weight: bold; color: #ffd800; text-shadow: 2px 2px 0 #000; opacity: 0; transition: opacity .25s; }
+    #toast.show { opacity: 1; }
+    #help { position: fixed; left: 12px; bottom: 10px; max-width: calc(100% - 340px); font-size: 13px; line-height: 1.4; text-shadow: 1px 1px 0 #000; }
+    #panel { position: fixed; right: 10px; top: 10px; width: 300px; max-height: calc(100% - 20px); overflow: auto; box-sizing: border-box; padding: 8px; background: rgba(10,16,40,.9); border: 3px solid #ffd800; font-size: 13px; }
+    #panel.hide { display: none; }
+    #panel button, #panel input, #panel select { font: inherit; box-sizing: border-box; }
+    #panel button { width: 100%; margin: 2px 0; padding: 5px; background: #2a4bd7; color: #fff; border: 2px solid #fff; cursor: pointer; }
+    #panel button.on { background: #ffd800; color: #000; }
+    #panel button:disabled { opacity: .45; cursor: not-allowed; }
+    #panel input, #panel select { width: 100%; padding: 4px; background: #000; color: #fff; border: 2px solid #7aa2ff; }
+    #panel label { display: block; margin: 4px 0; }
+    #panel .chk { display: flex; align-items: center; gap: 6px; }
+    #panel .chk input { width: auto; }
+    #tabs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 8px; }
+    #tabs button { margin: 0; }
+    .pane { display: none; }
+    .row { display: flex; gap: 4px; }
+    .row > * { flex: 1; min-width: 0; }
+    .grid { display: grid; gap: 4px; }
+    .g2 { grid-template-columns: 1fr 1fr; }
+    .g3 { grid-template-columns: 1fr 1fr 1fr; }
+    .g5 { grid-template-columns: repeat(5, 1fr); }
+    .grid button { margin: 0; padding: 5px 0; }
+    .tools button { font-size: 11px; white-space: nowrap; overflow: hidden; }
+    .shapes button { font-size: 17px; line-height: 1.1; padding: 4px 0; }
+    .hint { opacity: .75; font-size: 12px; line-height: 1.4; }
+    .sub { margin: 8px 0 2px; color: #7aa2ff; font-weight: bold; }
+    #lvname { margin-bottom: 6px; font-weight: bold; color: #ffd800; }
+    #shapename { color: #ffd800; margin: 2px 0 4px; }
+    #status { min-height: 16px; margin-top: 6px; color: #ffd800; }
+    .item { display: flex; align-items: center; gap: 4px; }
+    .item a { padding: 0 6px; color: #ffd800; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <div id="hud"></div>
+  <div id="edinfo"></div>
+  <div id="toast"></div>
+  <div id="msg"></div>
+  <div id="help"></div>
+
+  <div id="panel">
+    <div id="tabs">
+      <button data-tab="play">Игра</button>
+      <button data-tab="edit">Редактор</button>
+      <button data-tab="work">Мастерская</button>
+    </div>
+
+    <div class="pane" id="pane-play">
+      <div id="lvname"></div>
+      <label>Сид <input id="seed" placeholder="любое слово или число"></label>
+      <div class="row">
+        <label>Стиль <select id="seedStyle"></select></label>
+        <label>Сложность <select id="seedDiff"></select></label>
+      </div>
+      <div class="row"><button id="btnSeed">Играть по сиду</button><button id="btnRand">Случайный</button></div>
+      <button id="btnClassic">Классический уровень</button>
+      <label>Код уровня <input id="code" placeholder="вставьте код"></label>
+      <button id="btnCode">Загрузить код</button>
+      <button class="link">Скопировать ссылку на уровень</button>
+      <p class="hint">Цель: добраться до звезды. Монеты собирать необязательно, если автор уровня не включил «Монеты обязательны». Флажки — чекпоинты: после падения вы вернётесь к последнему. Рекорд сохраняется по времени.</p>
+      <button id="btnReset">Сбросить рекорды</button>
+    </div>
+
+    <div class="pane" id="pane-edit">
+      <label>Название <input id="ename" maxlength="40"></label>
+
+      <div class="sub">Инструмент (клавиши 1–7)</div>
+      <div class="grid g3 tools" id="tools"></div>
+
+      <div class="sub">Форма платформы (клавиша R: повернуть)</div>
+      <div class="grid g5 shapes" id="shapes"></div>
+      <div id="shapename"></div>
+      <button id="btnDelShape">Удалить выбранную свою форму</button>
+      <div id="drawbox" style="display:none">
+        <div class="sub">Рисование своей формы</div>
+        <p class="hint" id="drawinfo"></p>
+        <div class="row"><button id="btnDrawDone">Замкнуть (Enter)</button><button id="btnDrawUndo">Убрать точку</button></div>
+        <button id="btnDrawCancel">Отмена (Esc)</button>
+      </div>
+
+      <div class="grid g2">
+        <label>Ширина <input id="edw" type="number" value="3" min="1" max="30" step="0.5"></label>
+        <label>Глубина <input id="edd" type="number" value="3" min="1" max="30" step="0.5"></label>
+        <label>Поворот ° <input id="edrot" type="number" value="0" step="15"></label>
+        <label>Наклон ° <input id="edtilt" type="number" value="0" min="-60" max="60" step="5"></label>
+        <label>Толщина <input id="edk" type="number" value="1" min="0.25" max="20" step="0.5"></label>
+        <label>Высота <input id="edh" type="number" value="0" step="0.5"></label>
+      </div>
+      <label>Шаг сетки
+        <select id="edstep">
+          <option value="0.25">0.25</option>
+          <option value="0.5" selected>0.5</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+        </select>
+      </label>
+      <label class="chk"><input type="checkbox" id="edsnap" checked> Прилипать к верху платформ</label>
+
+      <div class="sub">Уровень</div>
+      <label class="chk"><input type="checkbox" id="edreq"> Монеты обязательны для прохождения</label>
+      <label>Тема платформ <select id="edtheme"></select></label>
+
+      <div class="sub">Камера и правка</div>
+      <div class="grid g3">
+        <button id="camTop">Сверху</button>
+        <button id="camSide">Сбоку</button>
+        <button id="camFit">Вся карта</button>
+      </div>
+      <button id="btnUndo">Отменить (Ctrl+Z)</button>
+
+      <button id="btnTest">Играть этот уровень</button>
+      <button id="btnNew">Новый пустой уровень</button>
+      <button class="link">Скопировать ссылку на уровень</button>
+      <button id="btnSubmit">Отправить в Мастерскую</button>
+      <p class="hint">Камера: тяните ЛКМ, чтобы вращать; ПКМ или колесо мыши (нажатие) — двигать; колесо — приближать. Клик ЛКМ — поставить, клик ПКМ — стереть. Shift+колесо или Z/X — высота. Инструмент «Своя форма»: кликайте точки контура, замкните кликом по первой точке или Enter; готовая форма появится в списке форм и сохранится в коде уровня. Жёлтая линия от призрака показывает, что находится под ним.</p>
+    </div>
+
+    <div class="pane" id="pane-work">
+      <button id="btnWork">Обновить список</button>
+      <div id="worklist"></div>
+      <p class="hint">Уровни игроков. Лайк уровню: поставьте 👍 на его странице (значок ↗).</p>
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
