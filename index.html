@@ -36,6 +36,8 @@
     .grid button { margin: 0; padding: 5px 0; }
     .tools button { font-size: 11px; white-space: nowrap; overflow: hidden; }
     .shapes button { font-size: 17px; line-height: 1.1; padding: 4px 0; }
+    #panel input[type=color] { padding: 0; height: 26px; cursor: pointer; }
+    .colors label { font-size: 11px; margin: 0; }
     .hint { opacity: .75; font-size: 12px; line-height: 1.4; }
     .sub { margin: 8px 0 2px; color: #7aa2ff; font-weight: bold; }
     #lvname { margin-bottom: 6px; font-weight: bold; color: #ffd800; }
@@ -73,6 +75,16 @@
       <button id="btnCode">Загрузить код</button>
       <button class="link">Скопировать ссылку на уровень</button>
       <p class="hint">Цель: добраться до звезды. Монеты собирать необязательно, если автор уровня не включил «Монеты обязательны». Флажки — чекпоинты: после падения вы вернётесь к последнему. Рекорд сохраняется по времени.</p>
+      <div class="sub">Раскраска персонажа</div>
+      <label>Скин <select id="skinSel"></select></label>
+      <div class="grid g3 colors">
+        <label>Штаны <input type="color" id="skLegs"></label>
+        <label>Майка <input type="color" id="skShirt"></label>
+        <label>Голова <input type="color" id="skHead"></label>
+        <label>Кепка <input type="color" id="skCap"></label>
+        <label>Пояс <input type="color" id="skBelt"></label>
+      </div>
+      <button id="btnSkinRand">Случайная раскраска</button>
       <button id="btnReset">Сбросить рекорды</button>
     </div>
 
