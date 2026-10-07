@@ -81,7 +81,7 @@ marker.visible = false; scene.add(marker);
 {
   const ssaoRender = ssao.render.bind(ssao);
   ssao.render = (...args) => {
-    const hide = [helpers, marker, ...outlines], was = hide.map((o) => o.visible);
+    const hide = [helpers, marker, dust, ...outlines], was = hide.map((o) => o.visible);
     hide.forEach((o) => (o.visible = false));
     ssaoRender(...args);
     hide.forEach((o, i) => (o.visible = was[i]));
@@ -489,6 +489,51 @@ const shadow = new THREE.Mesh(
 );
 scene.add(shadow);
 
+// ---------- Дым из-под ног ----------
+// Пул низкополигональных «клубков» одним InstancedMesh. Клубок быстро надувается, потом сжимается и пропадает.
+// Три источника: бег (маленькие облачка позади), прыжок (кольцо вокруг ног) и приземление (сильнее при сильном ударе).
+const DUST_N = 90;
+const dust = new THREE.InstancedMesh(
+  new THREE.IcosahedronGeometry(1, 0),
+  new THREE.MeshBasicMaterial({ color: 0xeeeae2, transparent: true, opacity: 0.8, depthWrite: false }),
+  DUST_N
+);
+dust.frustumCulled = false;
+dust.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+scene.add(dust);
+const dp = Array.from({ length: DUST_N }, () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, age: 1, life: 1, size: 0, rot: 0 }));
+let dustNext = 0, runPuff = 0;
+const dummyD = new THREE.Object3D();
+function puff(x, y, z, vx, vy, vz, size, life) {
+  const d = dp[dustNext]; dustNext = (dustNext + 1) % DUST_N;
+  d.x = x; d.y = y; d.z = z; d.vx = vx; d.vy = vy; d.vz = vz; d.size = size; d.life = life; d.age = 0; d.rot = Math.random() * 6.28;
+}
+// Кольцо дыма вокруг ног: n клубков, разлетающихся в стороны
+function dustRing(x, y, z, n, speed, size) {
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + Math.random() * 0.5, sp = speed * (0.7 + Math.random() * 0.6);
+    puff(x + Math.cos(a) * 0.25, y + 0.08, z + Math.sin(a) * 0.25, Math.cos(a) * sp, 0.5 + Math.random() * 0.9, Math.sin(a) * sp, size * (0.8 + Math.random() * 0.5), 0.45 + Math.random() * 0.3);
+  }
+}
+function updateDust(dt) {
+  for (let i = 0; i < DUST_N; i++) {
+    const d = dp[i];
+    if (d.age >= d.life) { dummyD.scale.setScalar(1e-4); dummyD.position.set(0, -999, 0); }
+    else {
+      d.age += dt;
+      const k = Math.exp(-3 * dt);
+      d.vx *= k; d.vz *= k; d.vy = d.vy * k + 0.6 * dt; // тормозится и слегка поднимается
+      d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
+      const t = Math.min(1, d.age / d.life), s = d.size * (0.35 + 0.65 * Math.min(1, t * 4)) * (1 - t * t);
+      dummyD.position.set(d.x, d.y, d.z); dummyD.scale.setScalar(Math.max(1e-4, s)); dummyD.rotation.set(d.rot, d.rot * 0.7 + t, 0);
+    }
+    dummyD.updateMatrix();
+    dust.setMatrixAt(i, dummyD.matrix);
+  }
+  dust.instanceMatrix.needsUpdate = true;
+}
+function clearDust() { dp.forEach((d) => (d.age = d.life)); }
+
 
 // ---------- Драконы ----------
 const dragonRoot = new THREE.Group(); // чтобы разом прятать драконов в редакторе
@@ -614,7 +659,7 @@ function toast(t, ms = 2200) {
 }
 
 function reset() {
-  spawn = L.start.slice(); cpIdx = -1;
+  clearDust(); spawn = L.start.slice(); cpIdx = -1;
   flags.forEach((_, i) => setFlag(i, false));
   p.set(...spawn); v.set(0, 0, 0); st.onGround = false;
   got = 0; time = 0; won = false; jumpBuf = 0; coyote = 0;
@@ -624,7 +669,7 @@ function reset() {
   msg.style.display = 'none';
   snapCam = true;
 }
-function respawn() { p.set(...spawn); v.set(0, 0, 0); st.onGround = false; snapCam = true; }
+function respawn() { clearDust(); p.set(...spawn); v.set(0, 0, 0); st.onGround = false; snapCam = true; }
 
 addEventListener('keydown', (e) => {
   if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
@@ -679,14 +724,25 @@ function update(dt) {
 
   coyote = st.onGround ? 0.1 : coyote - dt;
   jumpBuf -= dt;
-  if (jumpBuf > 0 && coyote > 0) { v.y = JUMP; coyote = 0; jumpBuf = 0; st.onGround = false; }
+  if (jumpBuf > 0 && coyote > 0) { v.y = JUMP; coyote = 0; jumpBuf = 0; st.onGround = false; dustRing(p.x, p.y, p.z, 7, 1.8, 0.28); }
 
   // Физика мелкими шагами, чтобы быстрое падение или бег не проскакивали сквозь платформы
   const n = Math.max(1, Math.ceil(dt / 0.01)), h = dt / n;
+  let landVy = 0;
   for (let i = 0; i < n; i++) {
     v.y = Math.max(-35, v.y - GRAV * h);
     stepBody(parts, p, v, h, st);
+    if (st.landed) landVy = Math.min(landVy, st.landVy); // приземление может случиться на любом подшаге
   }
+  if (landVy < -5) dustRing(p.x, p.y, p.z, Math.min(14, 6 + Math.round(-landVy / 3)), Math.min(4, 1.5 - landVy * 0.12), 0.32 + Math.min(0.25, -landVy * 0.01));
+  // бег: маленькие облачка позади, чаще при движении на земле
+  runPuff -= dt;
+  if (st.onGround && len > 0 && runPuff <= 0) {
+    runPuff = 0.07;
+    puff(p.x - dx * 0.25 + (Math.random() - 0.5) * 0.3, p.y + 0.08, p.z - dz * 0.25 + (Math.random() - 0.5) * 0.3,
+      -dx * 0.8 + (Math.random() - 0.5) * 0.6, 0.35 + Math.random() * 0.4, -dz * 0.8 + (Math.random() - 0.5) * 0.6, 0.2 + Math.random() * 0.12, 0.4 + Math.random() * 0.2);
+  }
+  updateDust(dt);
 
   if (p.y < voidY) respawn();
 
@@ -1082,7 +1138,7 @@ function setTab(t) {
   helpers.visible = marker.visible = e;
   outlines.forEach((o) => (o.visible = e));
   if (!e) { setHover(null); ed.over = false; cancelDraw(); }
-  dragonRoot.visible = !e;
+  dragonRoot.visible = dust.visible = !e;
   hud.style.display = e ? 'none' : '';
   $('edinfo').style.display = e ? 'block' : 'none';
   $('help').textContent = e ? HELP_EDIT : HELP_PLAY;
@@ -1250,3 +1306,4 @@ setTool('plat'); syncUI();
 play(classic());
 loadHash();
 loop();
+
