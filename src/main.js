@@ -194,10 +194,11 @@ const gloss = (color, rough, metal, extra = {}) =>
 
 // ---------- Сохранение: только рекорды ----------
 const SAVE_KEY = 'n64parkour.v1';
-let save = { best: {} };
+let save = { best: {}, skin: null };
 try {
   const s = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
   if (s.best && typeof s.best === 'object') save.best = s.best;
+  if (s.skin && typeof s.skin === 'object') save.skin = s.skin;
 } catch { /* без сохранений тоже работает */ }
 function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* ignore */ } }
 
@@ -422,14 +423,66 @@ function buildLevel(lv) {
   refreshShapeButtons();
 }
 
-// ---------- Игрок ----------
+// ---------- Игрок и раскраски ----------
+// Каждая часть тела — отдельный PBR-материал, поэтому скин меняет не только цвет, но и блеск (металл, глянец).
+const SKIN_KEYS = ['legs', 'shirt', 'head', 'cap', 'belt'];
+const SKINS = [
+  { name: 'Классика', legs: 0x1565c0, shirt: 0xd32f2f, head: 0xffcc99, cap: 0xd32f2f, belt: 0x5d4037 },
+  { name: 'Зелёный', legs: 0x1a237e, shirt: 0x2e9b3a, head: 0xffcc99, cap: 0x2e9b3a, belt: 0x5d4037 },
+  { name: 'Ниндзя', legs: 0x1c1c1c, shirt: 0x2b2b2b, head: 0xf0c8a0, cap: 0x8e0000, belt: 0xb71c1c },
+  { name: 'Космонавт', legs: 0xe0e0e0, shirt: 0xf5f5f5, head: 0x37474f, cap: 0xeeeeee, belt: 0xff6f00, rough: 0.3, metal: 0.25 },
+  { name: 'Золотой рыцарь', legs: 0xb8860b, shirt: 0xffd24d, head: 0xffe08a, cap: 0xffc107, belt: 0x8d6e00, rough: 0.25, metal: 1 },
+  { name: 'Хром', legs: 0xb0bec5, shirt: 0xe0e6ea, head: 0xcfd8dc, cap: 0x90a4ae, belt: 0x455a64, rough: 0.12, metal: 1 },
+  { name: 'Ледяной', legs: 0x4aa3e0, shirt: 0xbfe8ff, head: 0xe3f6ff, cap: 0x7fc4f0, belt: 0x2f6f9f, rough: 0.15, metal: 0.2 },
+  { name: 'Клубника', legs: 0xf8bbd0, shirt: 0xe91e63, head: 0xffe0b2, cap: 0xc2185b, belt: 0x6a1b9a, rough: 0.3, metal: 0.1 },
+  { name: 'Вулкан', legs: 0x3e2723, shirt: 0xd9622b, head: 0xe0a070, cap: 0x8a3b2a, belt: 0xffb300, rough: 0.7, metal: 0.3 },
+  { name: 'Призрак', legs: 0xdedede, shirt: 0xffffff, head: 0xf5f5f5, cap: 0xcfd8ff, belt: 0x9fa8da, rough: 0.2, metal: 0 },
+  { name: 'Радужный (анимация)', legs: 0x1565c0, shirt: 0xd32f2f, head: 0xffcc99, cap: 0xd32f2f, belt: 0xffffff, rough: 0.25, metal: 0.4, rainbow: true },
+];
 const player = new THREE.Group();
-const body = (c) => gloss(c, 0.55, 0.1, { flatShading: true });
-box(player, 0.6, 0.4, 0.35, body(0x1565c0), 0, 0.2, 0);
-box(player, 0.7, 0.6, 0.4, body(0xd32f2f), 0, 0.7, 0);
-box(player, 0.45, 0.45, 0.45, body(0xffcc99), 0, 1.25, 0);
-box(player, 0.5, 0.15, 0.5, body(0xd32f2f), 0, 1.55, 0);
+const skinMats = {};
+const skinPart = (key, w, h, d, x, y, z) => { skinMats[key] = skinMats[key] || gloss(0xffffff, 0.55, 0.1, { flatShading: true }); box(player, w, h, d, skinMats[key], x, y, z); };
+const darkMat = gloss(0x111111, 0.4, 0, { flatShading: true });
+skinPart('legs', 0.6, 0.4, 0.35, 0, 0.2, 0);          // штаны и ботинки
+skinPart('shirt', 0.7, 0.6, 0.4, 0, 0.7, 0);          // майка
+skinPart('belt', 0.74, 0.1, 0.44, 0, 0.42, 0);        // пояс
+skinPart('head', 0.45, 0.45, 0.45, 0, 1.25, 0);       // голова
+skinPart('cap', 0.5, 0.15, 0.5, 0, 1.55, 0);          // кепка
+skinPart('cap', 0.46, 0.05, 0.22, 0, 1.5, 0.32);      // козырёк
+box(player, 0.07, 0.09, 0.04, darkMat, -0.1, 1.28, 0.23); // глаза
+box(player, 0.07, 0.09, 0.04, darkMat, 0.1, 1.28, 0.23);
 scene.add(player);
+
+let skin = SKINS[0], skinId = 0;
+function applySkin(sk) {
+  skin = sk;
+  for (const k of SKIN_KEYS) {
+    const m = skinMats[k];
+    m.color.setHex(sk[k]); m.roughness = sk.rough ?? 0.55; m.metalness = sk.metal ?? 0.1;
+  }
+}
+// «Радужный» скин: цвета плавно переливаются по кругу (у каждой части свой сдвиг)
+function skinAnim(t) {
+  if (!skin.rainbow) return;
+  SKIN_KEYS.forEach((k, i) => { if (k !== 'belt') skinMats[k].color.setHSL((t * 0.15 + i * 0.2) % 1, 0.85, 0.55); });
+}
+const hexStr = (n) => '#' + n.toString(16).padStart(6, '0');
+function syncSkinUI() {
+  $('skinSel').value = String(skinId);
+  const ids = { legs: 'skLegs', shirt: 'skShirt', head: 'skHead', cap: 'skCap', belt: 'skBelt' };
+  for (const k of SKIN_KEYS) $(ids[k]).value = hexStr(skin[k]);
+}
+function chooseSkin(id) {
+  skinId = id;
+  if (id === 'custom') { const c = save.skin && save.skin.colors; applySkin({ name: 'Свои цвета', ...(c || SKINS[0]) }); }
+  else applySkin(SKINS[id]);
+  save.skin = id === 'custom' ? { id, colors: Object.fromEntries(SKIN_KEYS.map((k) => [k, skin[k]])) } : { id };
+  persist(); syncSkinUI();
+}
+function customSkin(colors) {
+  save.skin = { id: 'custom', colors };
+  chooseSkin('custom');
+}
 const shadow = new THREE.Mesh(
   new THREE.CircleGeometry(0.5, 8).rotateX(-Math.PI / 2),
   new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4 })
@@ -670,6 +723,7 @@ function update(dt) {
   const txt = `МОНЕТЫ ${got}/${coins.length}${need ? '  НУЖНЫ ВСЕ' : ''}   ВРЕМЯ ${time.toFixed(1)}\n${best != null ? 'РЕКОРД ' + best.toFixed(1) : ''}${cpIdx >= 0 ? '   ЧЕКПОИНТ' : ''}`;
   if (txt !== lastHud) { hud.textContent = txt; lastHud = txt; }
 
+  skinAnim(clockT);
   player.position.copy(p);
   player.rotation.y = face;
   const gy = supportY(parts, p.x, p.z, p.y + 0.05);
@@ -1123,7 +1177,7 @@ $('btnDrawCancel').onclick = cancelDraw;
 $('btnDelShape').onclick = delShape;
 $('btnReset').onclick = () => {
   if (!confirm('Сбросить все рекорды?')) return;
-  save = { best: {} }; persist();
+  save.best = {}; persist();
 };
 $('btnSubmit').onclick = () => {
   const { owner, repo } = ghRepo();
@@ -1151,6 +1205,26 @@ for (const [k, n] of Object.entries(STYLES)) $('seedStyle').add(new Option(n, k)
 for (const [k, n] of Object.entries(DIFFS)) $('seedDiff').add(new Option(n, k));
 THEMES.forEach((t, i) => $('edtheme').add(new Option(t.name, i)));
 $('seedDiff').value = 2;
+SKINS.forEach((sk, i) => $('skinSel').add(new Option(sk.name, i)));
+$('skinSel').add(new Option('Свои цвета', 'custom'));
+{
+  const ids = { legs: 'skLegs', shirt: 'skShirt', head: 'skHead', cap: 'skCap', belt: 'skBelt' };
+  const readColors = () => Object.fromEntries(SKIN_KEYS.map((k) => [k, parseInt($(ids[k]).value.slice(1), 16)]));
+  for (const k of SKIN_KEYS) $(ids[k]).oninput = () => customSkin(readColors());
+  $('skinSel').onchange = (e) => {
+    const v = e.target.value;
+    if (v === 'custom') customSkin(save.skin && save.skin.colors ? save.skin.colors : Object.fromEntries(SKIN_KEYS.map((k) => [k, skin[k]])));
+    else chooseSkin(+v);
+    e.target.blur();
+  };
+  $('btnSkinRand').onclick = () => {
+    const c = new THREE.Color(), h = Math.random(), col = (dh, sat, lig) => { c.setHSL((h + dh) % 1, sat, lig); return c.getHex(); };
+    customSkin({ legs: col(0.5, 0.6, 0.35), shirt: col(0, 0.75, 0.5), head: col(0.08 + Math.random() * 0.02, 0.6, 0.78), cap: col(0.33, 0.7, 0.45), belt: col(0.16, 0.5, 0.3) });
+  };
+  const sv = save.skin;
+  if (sv && sv.id === 'custom' && sv.colors) chooseSkin('custom');
+  else chooseSkin(sv && Number.isInteger(sv.id) && SKINS[sv.id] ? sv.id : 0);
+}
 
 function loadHash() {
   const h = location.hash.slice(1);
