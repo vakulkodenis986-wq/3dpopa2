@@ -13,6 +13,17 @@ import { generate, rngFrom, STYLES, DIFFS } from './gen.js';
 
 const $ = (id) => document.getElementById(id);
 
+// ---------- Настройки графики ----------
+// «Лёгкая» (по умолчанию) — как на N64: освещение Фонга без карт окружения и без SSAO, облегчённое небо и облака.
+// «Красивая» — PBR с отражениями неба и SSAO. Лимит кадров не даёт видеокарте крутить сотни кадров впустую.
+let QUALITY = 'light', FPS_CAP = 60;
+try {
+  const q = JSON.parse(localStorage.getItem('n64parkour.v1') || '{}');
+  if (q.quality === 'high') QUALITY = 'high';
+  if ([0, 30, 60].includes(q.fps)) FPS_CAP = q.fps;
+} catch { /* настройки по умолчанию */ }
+const HIGH = QUALITY === 'high';
+
 // ---------- Рендер в стиле N64 ----------
 const RES_H = 240;
 const renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -31,7 +42,7 @@ function drawTex(size, draw, repeat = false) {
 
 // Небо: рисуется один раз в картинку 360x180 и используется как фон сцены
 function makeSky() {
-  const W = 1024, H = 512, c = document.createElement('canvas');
+  const W = HIGH ? 1024 : 512, H = W / 2, c = document.createElement('canvas'); // в лёгком режиме небо в 4 раза меньше: быстрее старт
   c.width = W; c.height = H;
   const g = c.getContext('2d'), img = g.createImageData(W, H);
   paintSky(img.data, W, H);
@@ -56,18 +67,21 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.3);
 sun.position.set(5, 10, 6); // то же направление, что у солнца на небе (см. sky.js)
 scene.add(sun);
 
-// Динамический ambient occlusion. Слабо/сильно: меняйте kernelRadius и maxDistance
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-const ssao = new SSAOPass(scene, camera, 320, RES_H);
-ssao.kernelRadius = 2.5;
-composer.addPass(ssao);
-composer.addPass(new OutputPass());
+// Динамический ambient occlusion (только в «красивом» режиме; в лёгком сцена рисуется напрямую)
+let composer = null, ssao = null;
+if (HIGH) {
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  ssao = new SSAOPass(scene, camera, 320, RES_H);
+  ssao.kernelRadius = 2.5;
+  composer.addPass(ssao);
+  composer.addPass(new OutputPass());
+}
 
 // Дальность камеры. Пороги SSAO заданы в долях дальности, поэтому пересчитываем их вместе с ней
 function setFar(f) {
   camera.far = f; camera.updateProjectionMatrix();
-  ssao.minDistance = 0.125 / f; ssao.maxDistance = 3 / f;
+  if (ssao) { ssao.minDistance = 0.125 / f; ssao.maxDistance = 3 / f; }
 }
 setFar(250);
 
@@ -78,7 +92,7 @@ helpers.visible = false;
 scene.add(helpers);
 const marker = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.2, 6), new THREE.MeshBasicMaterial({ color: 0xff2222 }));
 marker.visible = false; scene.add(marker);
-{
+if (ssao) {
   const ssaoRender = ssao.render.bind(ssao);
   ssao.render = (...args) => {
     const hide = [helpers, marker, dust, ...outlines], was = hide.map((o) => o.visible);
@@ -91,7 +105,7 @@ marker.visible = false; scene.add(marker);
 function resize() {
   const w = Math.round(RES_H * innerWidth / innerHeight);
   renderer.setSize(w, RES_H, false);
-  composer.setSize(w, RES_H);
+  if (composer) composer.setSize(w, RES_H);
   camera.aspect = w / RES_H;
   camera.updateProjectionMatrix();
 }
@@ -104,7 +118,7 @@ const box = (parent, w, h, d, m, x, y, z) => {
   o.position.set(x, y, z); parent.add(o); return o;
 };
 
-const clouds = createClouds(scene);
+const clouds = createClouds(scene, HIGH ? { count: 36, puffs: 7 } : { count: 20, puffs: 5 });
 
 // ---------- PBR-материалы ----------
 // У платформ физически корректный материал (MeshStandardMaterial): шероховатость и металличность берутся
@@ -141,12 +155,12 @@ const albedoTex = mapTex(TS, (x, y) => {
   const c = Math.max(0, Math.min(255, (seam(x, y) ? 150 : cellOf(x, y) ? 205 : 255) + noise(x, y) - 8));
   return [c, c, c];
 }, true);
-const ormTex = mapTex(TS, (x, y) => {
+const ormTex = !HIGH ? null : mapTex(TS, (x, y) => {
   if (seam(x, y)) return [255, 255, 0];
   if (flake[y * TS + x]) return [255, 60, 255];
   return cellOf(x, y) ? [255, 215, 70] : [255, 185, 120];
 }, false);
-const bumpTex = mapTex(TS, (x, y) => { const h = seam(x, y) ? 40 : bevel(x, y) ? 230 : 150 + noise(x, y); return [h, h, h]; }, false);
+const bumpTex = !HIGH ? null : mapTex(TS, (x, y) => { const h = seam(x, y) ? 40 : bevel(x, y) ? 230 : 150 + noise(x, y); return [h, h, h]; }, false);
 
 // Окружение для отражений: то же небо, но солнце ярче 1.0 (HDR), чтобы блики были настоящими
 function makeEnv() {
@@ -174,7 +188,7 @@ function makeEnv() {
   t.dispose(); pm.dispose();
   return rt.texture;
 }
-const envTex = makeEnv();
+const envTex = HIGH ? makeEnv() : null;
 
 // Темы платформ: цвета + «характер» поверхности (rough/metal умножаются на карту)
 const THEMES = [
@@ -185,16 +199,32 @@ const THEMES = [
   { name: 'Конфеты', colors: [0xff7eb6, 0x7ee8c0, 0xffe27e, 0xb59cff, 0x7fd3ff], rough: 0.28, metal: 0.15, env: 1.2 },
   { name: 'Нефрит', colors: [0x2e9b6a, 0x3fb58a, 0x1f7a5a, 0x66d19e, 0x8fe3b8], rough: 0.3, metal: 0.3, env: 1.2 },
 ];
-const platMat = (color, th) => new THREE.MeshStandardMaterial({
-  color, map: albedoTex, roughnessMap: ormTex, metalnessMap: ormTex, bumpMap: bumpTex, bumpScale: 0.6,
-  roughness: th.rough, metalness: th.metal, vertexColors: true, envMap: envTex, envMapIntensity: th.env,
-});
-const gloss = (color, rough, metal, extra = {}) =>
-  new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, envMap: envTex, envMapIntensity: 1.2, ...extra });
+const grey = (k) => new THREE.Color().setScalar(Math.max(0, Math.min(1, k)));
+// Блеск «от солнца»: в красивом режиме — PBR (rough/metal), в лёгком — блик Фонга (shininess/specular)
+function platMat(color, th) {
+  if (HIGH) {
+    return new THREE.MeshStandardMaterial({
+      color, map: albedoTex, roughnessMap: ormTex, metalnessMap: ormTex, bumpMap: bumpTex, bumpScale: 0.6,
+      roughness: th.rough, metalness: th.metal, vertexColors: true, envMap: envTex, envMapIntensity: th.env,
+    });
+  }
+  return new THREE.MeshPhongMaterial({
+    color, map: albedoTex, vertexColors: true,
+    shininess: 8 + (1 - th.rough) * 80, specular: grey(0.1 + 0.3 * th.metal + 0.3 * (1 - th.rough) ** 2),
+  });
+}
+function gloss(color, rough, metal, extra = {}) {
+  if (HIGH) return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, envMap: envTex, envMapIntensity: 1.2, ...extra });
+  return new THREE.MeshPhongMaterial({ color, shininess: 8 + (1 - rough) * 90, specular: grey(0.12 + 0.35 * metal + 0.3 * (1 - rough) ** 2), ...extra });
+}
+function setShine(m, rough, metal) {
+  if (HIGH) { m.roughness = rough; m.metalness = metal; }
+  else { m.shininess = 8 + (1 - rough) * 90; m.specular.copy(grey(0.12 + 0.35 * metal + 0.3 * (1 - rough) ** 2)); }
+}
 
 // ---------- Сохранение: только рекорды ----------
 const SAVE_KEY = 'n64parkour.v1';
-let save = { best: {}, skin: null };
+let save = { best: {}, skin: null, quality: QUALITY, fps: FPS_CAP };
 try {
   const s = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
   if (s.best && typeof s.best === 'object') save.best = s.best;
@@ -427,30 +457,49 @@ function buildLevel(lv) {
 // Каждая часть тела — отдельный PBR-материал, поэтому скин меняет не только цвет, но и блеск (металл, глянец).
 const SKIN_KEYS = ['legs', 'shirt', 'head', 'cap', 'belt'];
 const SKINS = [
-  { name: 'Классика', legs: 0x1565c0, shirt: 0xd32f2f, head: 0xffcc99, cap: 0xd32f2f, belt: 0x5d4037 },
-  { name: 'Зелёный', legs: 0x1a237e, shirt: 0x2e9b3a, head: 0xffcc99, cap: 0x2e9b3a, belt: 0x5d4037 },
-  { name: 'Ниндзя', legs: 0x1c1c1c, shirt: 0x2b2b2b, head: 0xf0c8a0, cap: 0x8e0000, belt: 0xb71c1c },
-  { name: 'Космонавт', legs: 0xe0e0e0, shirt: 0xf5f5f5, head: 0x37474f, cap: 0xeeeeee, belt: 0xff6f00, rough: 0.3, metal: 0.25 },
-  { name: 'Золотой рыцарь', legs: 0xb8860b, shirt: 0xffd24d, head: 0xffe08a, cap: 0xffc107, belt: 0x8d6e00, rough: 0.25, metal: 1 },
-  { name: 'Хром', legs: 0xb0bec5, shirt: 0xe0e6ea, head: 0xcfd8dc, cap: 0x90a4ae, belt: 0x455a64, rough: 0.12, metal: 1 },
-  { name: 'Ледяной', legs: 0x4aa3e0, shirt: 0xbfe8ff, head: 0xe3f6ff, cap: 0x7fc4f0, belt: 0x2f6f9f, rough: 0.15, metal: 0.2 },
-  { name: 'Клубника', legs: 0xf8bbd0, shirt: 0xe91e63, head: 0xffe0b2, cap: 0xc2185b, belt: 0x6a1b9a, rough: 0.3, metal: 0.1 },
-  { name: 'Вулкан', legs: 0x3e2723, shirt: 0xd9622b, head: 0xe0a070, cap: 0x8a3b2a, belt: 0xffb300, rough: 0.7, metal: 0.3 },
-  { name: 'Призрак', legs: 0xdedede, shirt: 0xffffff, head: 0xf5f5f5, cap: 0xcfd8ff, belt: 0x9fa8da, rough: 0.2, metal: 0 },
-  { name: 'Радужный (анимация)', legs: 0x1565c0, shirt: 0xd32f2f, head: 0xffcc99, cap: 0xd32f2f, belt: 0xffffff, rough: 0.25, metal: 0.4, rainbow: true },
+  { name: 'Серебряный рыцарь', legs: 0x8d99a6, shirt: 0xc9d3dc, head: 0xd5dde4, cap: 0xd32f2f, belt: 0x5d4037, rough: 0.3, metal: 0.9 },
+  { name: 'Золотой рыцарь', legs: 0xb8860b, shirt: 0xffd24d, head: 0xffe08a, cap: 0x1565c0, belt: 0x6d4c00, rough: 0.25, metal: 1 },
+  { name: 'Чёрный рыцарь', legs: 0x23232a, shirt: 0x34343c, head: 0x2b2b32, cap: 0x8e0000, belt: 0xb71c1c, rough: 0.35, metal: 0.85 },
+  { name: 'Красный рыцарь', legs: 0x8e1b1b, shirt: 0xc62828, head: 0xd84a4a, cap: 0xf5f5f5, belt: 0xffc107, rough: 0.3, metal: 0.8 },
+  { name: 'Королевский синий', legs: 0x1a3a8a, shirt: 0x2f5fd0, head: 0x5a85e8, cap: 0xffd24d, belt: 0xffc107, rough: 0.28, metal: 0.85 },
+  { name: 'Изумрудный', legs: 0x1b6b4a, shirt: 0x2e9b6a, head: 0x4fcf97, cap: 0xf5f5f5, belt: 0x5d4037, rough: 0.3, metal: 0.8 },
+  { name: 'Хром', legs: 0xb0bec5, shirt: 0xe0e6ea, head: 0xcfd8dc, cap: 0x455a64, belt: 0x37474f, rough: 0.12, metal: 1 },
+  { name: 'Ледяной', legs: 0x4aa3e0, shirt: 0xbfe8ff, head: 0xe3f6ff, cap: 0x2f6f9f, belt: 0x7fc4f0, rough: 0.15, metal: 0.3 },
+  { name: 'Вулкан', legs: 0x3e2723, shirt: 0x8a3b2a, head: 0xd9622b, cap: 0xffb300, belt: 0x212121, rough: 0.7, metal: 0.4 },
+  { name: 'Призрак', legs: 0xdedede, shirt: 0xffffff, head: 0xf5f5f5, cap: 0xcfd8ff, belt: 0x9fa8da, rough: 0.2, metal: 0.1 },
+  { name: 'Радужный (анимация)', legs: 0x1565c0, shirt: 0xd32f2f, head: 0xffcc99, cap: 0xd32f2f, belt: 0xffffff, rough: 0.25, metal: 0.6, rainbow: true },
 ];
 const player = new THREE.Group();
 const skinMats = {};
-const skinPart = (key, w, h, d, x, y, z) => { skinMats[key] = skinMats[key] || gloss(0xffffff, 0.55, 0.1, { flatShading: true }); box(player, w, h, d, skinMats[key], x, y, z); };
+const skinPart = (key, parent, w, h, d, x, y, z) => {
+  skinMats[key] = skinMats[key] || gloss(0xffffff, 0.4, 0.8, { flatShading: true });
+  return box(parent, w, h, d, skinMats[key], x, y, z);
+};
 const darkMat = gloss(0x111111, 0.4, 0, { flatShading: true });
-skinPart('legs', 0.6, 0.4, 0.35, 0, 0.2, 0);          // штаны и ботинки
-skinPart('shirt', 0.7, 0.6, 0.4, 0, 0.7, 0);          // майка
-skinPart('belt', 0.74, 0.1, 0.44, 0, 0.42, 0);        // пояс
-skinPart('head', 0.45, 0.45, 0.45, 0, 1.25, 0);       // голова
-skinPart('cap', 0.5, 0.15, 0.5, 0, 1.55, 0);          // кепка
-skinPart('cap', 0.46, 0.05, 0.22, 0, 1.5, 0.32);      // козырёк
-box(player, 0.07, 0.09, 0.04, darkMat, -0.1, 1.28, 0.23); // глаза
-box(player, 0.07, 0.09, 0.04, darkMat, 0.1, 1.28, 0.23);
+const steelMat = gloss(0xdde3e8, 0.18, 1, { flatShading: true });   // клинок меча, не зависит от скина
+const pivot = (x, y, z) => { const g = new THREE.Group(); g.position.set(x, y, z); player.add(g); return g; };
+// Рыцарь: шлем с забралом и плюмажем, нагрудник, наплечники, щит, меч. Руки и ноги — отдельные шарниры для анимации бега.
+const legL = pivot(-0.17, 0.46, 0), legR = pivot(0.17, 0.46, 0), armL = pivot(-0.42, 1.08, 0), armR = pivot(0.42, 1.08, 0);
+skinPart('legs', legL, 0.26, 0.46, 0.32, 0, -0.23, 0);        // поножи и сабатоны
+skinPart('legs', legR, 0.26, 0.46, 0.32, 0, -0.23, 0);
+skinPart('belt', player, 0.7, 0.12, 0.42, 0, 0.52, 0);        // пояс
+skinPart('shirt', player, 0.62, 0.52, 0.38, 0, 0.84, 0);      // кираса
+skinPart('shirt', player, 0.36, 0.26, 0.05, 0, 0.88, 0.21);   // выпуклость на груди
+skinPart('shirt', armL, 0.26, 0.18, 0.34, 0, 0.02, 0);        // наплечники
+skinPart('shirt', armR, 0.26, 0.18, 0.34, 0, 0.02, 0);
+skinPart('legs', armL, 0.17, 0.42, 0.2, 0, -0.26, 0);         // руки в латах
+skinPart('legs', armR, 0.17, 0.42, 0.2, 0, -0.26, 0);
+skinPart('cap', armL, 0.08, 0.5, 0.4, -0.14, -0.28, 0.04);    // щит: цвет герба
+skinPart('belt', armL, 0.05, 0.14, 0.14, -0.2, -0.28, 0.04);  // умбон щита
+box(armR, 0.06, 0.68, 0.03, steelMat, 0, -0.09, 0.22);       // клинок торчит вверх из кулака
+skinPart('belt', armR, 0.3, 0.05, 0.07, 0, -0.46, 0.22);      // гарда
+skinPart('belt', armR, 0.06, 0.16, 0.06, 0, -0.54, 0.22);     // рукоять
+skinPart('head', player, 0.46, 0.46, 0.46, 0, 1.38, 0);       // шлем
+skinPart('head', player, 0.5, 0.1, 0.5, 0, 1.18, 0);          // горжет
+box(player, 0.34, 0.07, 0.04, darkMat, 0, 1.4, 0.24);         // прорезь забрала
+box(player, 0.05, 0.22, 0.04, darkMat, 0, 1.3, 0.24);         // вертикальная щель
+skinPart('cap', player, 0.1, 0.18, 0.5, 0, 1.69, -0.02);      // гребень и плюмаж
+skinPart('cap', player, 0.1, 0.3, 0.12, 0, 1.55, -0.3);
 scene.add(player);
 
 let skin = SKINS[0], skinId = 0;
@@ -458,8 +507,19 @@ function applySkin(sk) {
   skin = sk;
   for (const k of SKIN_KEYS) {
     const m = skinMats[k];
-    m.color.setHex(sk[k]); m.roughness = sk.rough ?? 0.55; m.metalness = sk.metal ?? 0.1;
+    m.color.setHex(sk[k]); setShine(m, sk.rough ?? 0.55, sk.metal ?? 0.1);
   }
+}
+// Анимация рыцаря: бег — руки и ноги качаются в противофазе, в прыжке руки подняты
+const kn = { phase: 0, swing: 0, air: 0 };
+function knightAnim(dt, moving, grounded) {
+  kn.phase += dt * (moving && grounded ? 14 : 0);
+  const k = Math.min(1, 14 * dt);
+  kn.swing += ((moving && grounded ? Math.sin(kn.phase) * 0.75 : 0) - kn.swing) * k;
+  kn.air += ((grounded ? 0 : 1) - kn.air) * k;
+  legL.rotation.x = kn.swing * (1 - kn.air * 0.6); legR.rotation.x = -kn.swing * (1 - kn.air * 0.6);
+  armL.rotation.x = -kn.swing * 0.8 - kn.air * 0.9; armR.rotation.x = kn.swing * 0.8 - kn.air * 1.6;
+  player.position.y = p.y + (grounded && moving ? Math.abs(Math.sin(kn.phase)) * 0.05 : 0);
 }
 // «Радужный» скин: цвета плавно переливаются по кругу (у каждой части свой сдвиг)
 function skinAnim(t) {
@@ -490,49 +550,76 @@ const shadow = new THREE.Mesh(
 scene.add(shadow);
 
 // ---------- Дым из-под ног ----------
-// Пул низкополигональных «клубков» одним InstancedMesh. Клубок быстро надувается, потом сжимается и пропадает.
-// Три источника: бег (маленькие облачка позади), прыжок (кольцо вокруг ног) и приземление (сильнее при сильном ударе).
-const DUST_N = 90;
-const dust = new THREE.InstancedMesh(
-  new THREE.IcosahedronGeometry(1, 0),
-  new THREE.MeshBasicMaterial({ color: 0xeeeae2, transparent: true, opacity: 0.8, depthWrite: false }),
-  DUST_N
-);
+// Как в Mario 64: плоские спрайты-«клубки» (билборды) с покадровой пиксельной анимацией, а не 3D-шары.
+// Весь дым — один вызов отрисовки (THREE.Points + маленький шейдер), без прозрачности: пиксели либо рисуются, либо нет.
+// Источники: бег (маленькие облачка позади), прыжок (кольцо вокруг ног) и приземление (сильнее при сильном ударе).
+const DUST_N = HIGH ? 90 : 60;
+function makePuffTex() {
+  const F = 16, FR = 4, c = document.createElement('canvas');
+  c.width = F * FR; c.height = F;
+  const g = c.getContext('2d'), img = g.createImageData(F * FR, F);
+  const R = [3.4, 5.2, 6.6, 7.6], HOLE = [0, 0, 1.6, 3.6]; // кадры: плотный комок → разлёт → редкий и рваный
+  for (let f = 0; f < FR; f++) for (let y = 0; y < F; y++) for (let x = 0; x < F; x++) {
+    const dx = x + 0.5 - F / 2, dy = y + 0.5 - F / 2, r = Math.hypot(dx, dy);
+    const n = (((x + f * 31) * 73856093) ^ ((y + f * 17) * 19349663)) & 255, ragged = (n / 255 - 0.5) * 2.4;
+    const o = (y * F * FR + f * F + x) * 4;
+    if (R[f] - r + ragged > 0 && r + ragged * 0.6 >= HOLE[f]) {
+      const lit = 238 - 30 * Math.max(0, Math.min(1, (dx + dy) / (R[f] * 1.4) + 0.5)); // свет сверху-слева
+      img.data[o] = lit; img.data[o + 1] = lit - 3; img.data[o + 2] = lit - 10; img.data[o + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const dustGeo = new THREE.BufferGeometry();
+const dPos = new Float32Array(DUST_N * 3), dSize = new Float32Array(DUST_N), dFrame = new Float32Array(DUST_N);
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3).setUsage(THREE.DynamicDrawUsage));
+dustGeo.setAttribute('aSize', new THREE.BufferAttribute(dSize, 1).setUsage(THREE.DynamicDrawUsage));
+dustGeo.setAttribute('aFrame', new THREE.BufferAttribute(dFrame, 1).setUsage(THREE.DynamicDrawUsage));
+const dust = new THREE.Points(dustGeo, new THREE.ShaderMaterial({
+  uniforms: { map: { value: makePuffTex() }, uScale: { value: RES_H / (2 * Math.tan(30 * DEG)) } }, // пикселей на метр на расстоянии 1
+  vertexShader: `attribute float aSize; attribute float aFrame; varying float vFrame; uniform float uScale;
+    void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv;
+      gl_PointSize = aSize * uScale / max(0.1, -mv.z); vFrame = aFrame; }`,
+  fragmentShader: `uniform sampler2D map; varying float vFrame;
+    void main() { vec4 c = texture2D(map, vec2((vFrame + gl_PointCoord.x) * 0.25, 1.0 - gl_PointCoord.y));
+      if (c.a < 0.5) discard; gl_FragColor = vec4(c.rgb, 1.0);
+      #include <colorspace_fragment>
+    }`,
+}));
 dust.frustumCulled = false;
-dust.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 scene.add(dust);
-const dp = Array.from({ length: DUST_N }, () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, age: 1, life: 1, size: 0, rot: 0 }));
+const dp = Array.from({ length: DUST_N }, () => ({ x: 0, y: -999, z: 0, vx: 0, vy: 0, vz: 0, age: 1, life: 1, size: 0 }));
 let dustNext = 0, runPuff = 0;
-const dummyD = new THREE.Object3D();
 function puff(x, y, z, vx, vy, vz, size, life) {
   const d = dp[dustNext]; dustNext = (dustNext + 1) % DUST_N;
-  d.x = x; d.y = y; d.z = z; d.vx = vx; d.vy = vy; d.vz = vz; d.size = size; d.life = life; d.age = 0; d.rot = Math.random() * 6.28;
+  d.x = x; d.y = y; d.z = z; d.vx = vx; d.vy = vy; d.vz = vz; d.size = size; d.life = life; d.age = 0;
 }
 // Кольцо дыма вокруг ног: n клубков, разлетающихся в стороны
 function dustRing(x, y, z, n, speed, size) {
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + Math.random() * 0.5, sp = speed * (0.7 + Math.random() * 0.6);
-    puff(x + Math.cos(a) * 0.25, y + 0.08, z + Math.sin(a) * 0.25, Math.cos(a) * sp, 0.5 + Math.random() * 0.9, Math.sin(a) * sp, size * (0.8 + Math.random() * 0.5), 0.45 + Math.random() * 0.3);
+    puff(x + Math.cos(a) * 0.25, y + 0.15, z + Math.sin(a) * 0.25, Math.cos(a) * sp, 0.5 + Math.random() * 0.9, Math.sin(a) * sp, size * (0.8 + Math.random() * 0.5), 0.45 + Math.random() * 0.3);
   }
 }
 function updateDust(dt) {
   for (let i = 0; i < DUST_N; i++) {
     const d = dp[i];
-    if (d.age >= d.life) { dummyD.scale.setScalar(1e-4); dummyD.position.set(0, -999, 0); }
-    else {
-      d.age += dt;
-      const k = Math.exp(-3 * dt);
-      d.vx *= k; d.vz *= k; d.vy = d.vy * k + 0.6 * dt; // тормозится и слегка поднимается
-      d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
-      const t = Math.min(1, d.age / d.life), s = d.size * (0.35 + 0.65 * Math.min(1, t * 4)) * (1 - t * t);
-      dummyD.position.set(d.x, d.y, d.z); dummyD.scale.setScalar(Math.max(1e-4, s)); dummyD.rotation.set(d.rot, d.rot * 0.7 + t, 0);
-    }
-    dummyD.updateMatrix();
-    dust.setMatrixAt(i, dummyD.matrix);
+    if (d.age >= d.life) { dSize[i] = 0; dPos[i * 3 + 1] = -999; continue; }
+    d.age += dt;
+    const k = Math.exp(-3 * dt);
+    d.vx *= k; d.vz *= k; d.vy = d.vy * k + 0.6 * dt; // тормозится и слегка поднимается
+    d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
+    const t = Math.min(1, d.age / d.life);
+    dPos[i * 3] = d.x; dPos[i * 3 + 1] = d.y; dPos[i * 3 + 2] = d.z;
+    dSize[i] = d.size * (0.7 + 0.9 * t);       // спрайт растёт, пока рассеивается
+    dFrame[i] = Math.min(3, Math.floor(t * 4)); // кадр анимации по возрасту
   }
-  dust.instanceMatrix.needsUpdate = true;
+  dustGeo.attributes.position.needsUpdate = dustGeo.attributes.aSize.needsUpdate = dustGeo.attributes.aFrame.needsUpdate = true;
 }
-function clearDust() { dp.forEach((d) => (d.age = d.life)); }
+function clearDust() { dp.forEach((d) => (d.age = d.life)); updateDust(0); }
 
 
 // ---------- Драконы ----------
@@ -781,6 +868,7 @@ function update(dt) {
 
   skinAnim(clockT);
   player.position.copy(p);
+  knightAnim(dt, len > 0, st.onGround);
   player.rotation.y = face;
   const gy = supportY(parts, p.x, p.z, p.y + 0.05);
   shadow.visible = gy > -Infinity;
@@ -1261,6 +1349,16 @@ for (const [k, n] of Object.entries(STYLES)) $('seedStyle').add(new Option(n, k)
 for (const [k, n] of Object.entries(DIFFS)) $('seedDiff').add(new Option(n, k));
 THEMES.forEach((t, i) => $('edtheme').add(new Option(t.name, i)));
 $('seedDiff').value = 2;
+$('qualitySel').value = QUALITY; $('fpsSel').value = String(FPS_CAP);
+$('fpsSel').onchange = (e) => { FPS_CAP = +e.target.value; save.fps = FPS_CAP; persist(); e.target.blur(); };
+$('qualitySel').onchange = (e) => {
+  save.quality = e.target.value; persist();
+  if (save.quality === QUALITY) return;
+  // материалы и постобработка создаются при старте, поэтому перезагружаем страницу, сохранив текущий уровень в ссылке
+  if (mode === 'edit' && !confirm('Страница перезагрузится. Уровень сохранится в ссылке, но отмена действий пропадёт. Продолжить?')) { e.target.value = QUALITY; save.quality = QUALITY; persist(); return; }
+  location.hash = L.id === 'classic' ? '' : L.seed ? `S=${encodeURIComponent(L.seed)}&T=${L.style || 'mix'}&D=${L.diff || 2}` : `L=${enc(L)}`;
+  location.reload();
+};
 SKINS.forEach((sk, i) => $('skinSel').add(new Option(sk.name, i)));
 $('skinSel').add(new Option('Свои цвета', 'custom'));
 {
@@ -1293,17 +1391,20 @@ addEventListener('hashchange', loadHash);
 
 // ---------- Старт ----------
 const clock = new THREE.Clock();
+let frameAcc = 0;
 function loop() {
   requestAnimationFrame(loop);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  frameAcc += clock.getDelta();
+  if (FPS_CAP && frameAcc < (1 / FPS_CAP) * 0.9) return; // лимит кадров: на мониторах 144 Гц не крутим лишнее
+  const dt = Math.min(frameAcc, 0.05);
+  frameAcc = 0;
   clockT += dt;
   if (mode === 'play') update(dt); else updateEdit(dt);
   updateDragons(dt, clockT);
   clouds.update(dt, clockT, camera.position);
-  composer.render();
+  if (composer) composer.render(); else renderer.render(scene, camera);
 }
 setTool('plat'); syncUI();
 play(classic());
 loadHash();
 loop();
-
