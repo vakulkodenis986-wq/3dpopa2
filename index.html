@@ -75,13 +75,27 @@
       <button id="btnCode">Загрузить код</button>
       <button class="link">Скопировать ссылку на уровень</button>
       <p class="hint">Цель: добраться до звезды. Монеты собирать необязательно, если автор уровня не включил «Монеты обязательны». Флажки — чекпоинты: после падения вы вернётесь к последнему. Рекорд сохраняется по времени.</p>
+      <div class="sub">Графика</div>
+      <label>Качество
+        <select id="qualitySel">
+          <option value="light">Лёгкая (как N64)</option>
+          <option value="high">Красивая (PBR, отражения, SSAO)</option>
+        </select>
+      </label>
+      <label>Лимит кадров
+        <select id="fpsSel">
+          <option value="30">30 (самое экономное)</option>
+          <option value="60">60</option>
+          <option value="0">Без лимита</option>
+        </select>
+      </label>
       <div class="sub">Раскраска персонажа</div>
       <label>Скин <select id="skinSel"></select></label>
       <div class="grid g3 colors">
-        <label>Штаны <input type="color" id="skLegs"></label>
-        <label>Майка <input type="color" id="skShirt"></label>
-        <label>Голова <input type="color" id="skHead"></label>
-        <label>Кепка <input type="color" id="skCap"></label>
+        <label>Поножи <input type="color" id="skLegs"></label>
+        <label>Латы <input type="color" id="skShirt"></label>
+        <label>Шлем <input type="color" id="skHead"></label>
+        <label>Плюмаж <input type="color" id="skCap"></label>
         <label>Пояс <input type="color" id="skBelt"></label>
       </div>
       <button id="btnSkinRand">Случайная раскраска</button>
