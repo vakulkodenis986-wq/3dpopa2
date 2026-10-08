@@ -550,76 +550,49 @@ const shadow = new THREE.Mesh(
 scene.add(shadow);
 
 // ---------- Дым из-под ног ----------
-// Как в Mario 64: плоские спрайты-«клубки» (билборды) с покадровой пиксельной анимацией, а не 3D-шары.
-// Весь дым — один вызов отрисовки (THREE.Points + маленький шейдер), без прозрачности: пиксели либо рисуются, либо нет.
-// Источники: бег (маленькие облачка позади), прыжок (кольцо вокруг ног) и приземление (сильнее при сильном ударе).
-const DUST_N = HIGH ? 90 : 60;
-function makePuffTex() {
-  const F = 16, FR = 4, c = document.createElement('canvas');
-  c.width = F * FR; c.height = F;
-  const g = c.getContext('2d'), img = g.createImageData(F * FR, F);
-  const R = [3.4, 5.2, 6.6, 7.6], HOLE = [0, 0, 1.6, 3.6]; // кадры: плотный комок → разлёт → редкий и рваный
-  for (let f = 0; f < FR; f++) for (let y = 0; y < F; y++) for (let x = 0; x < F; x++) {
-    const dx = x + 0.5 - F / 2, dy = y + 0.5 - F / 2, r = Math.hypot(dx, dy);
-    const n = (((x + f * 31) * 73856093) ^ ((y + f * 17) * 19349663)) & 255, ragged = (n / 255 - 0.5) * 2.4;
-    const o = (y * F * FR + f * F + x) * 4;
-    if (R[f] - r + ragged > 0 && r + ragged * 0.6 >= HOLE[f]) {
-      const lit = 238 - 30 * Math.max(0, Math.min(1, (dx + dy) / (R[f] * 1.4) + 0.5)); // свет сверху-слева
-      img.data[o] = lit; img.data[o + 1] = lit - 3; img.data[o + 2] = lit - 10; img.data[o + 3] = 255;
-    }
-  }
-  g.putImageData(img, 0, 0);
-  const t = new THREE.CanvasTexture(c);
-  t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-const dustGeo = new THREE.BufferGeometry();
-const dPos = new Float32Array(DUST_N * 3), dSize = new Float32Array(DUST_N), dFrame = new Float32Array(DUST_N);
-dustGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3).setUsage(THREE.DynamicDrawUsage));
-dustGeo.setAttribute('aSize', new THREE.BufferAttribute(dSize, 1).setUsage(THREE.DynamicDrawUsage));
-dustGeo.setAttribute('aFrame', new THREE.BufferAttribute(dFrame, 1).setUsage(THREE.DynamicDrawUsage));
-const dust = new THREE.Points(dustGeo, new THREE.ShaderMaterial({
-  uniforms: { map: { value: makePuffTex() }, uScale: { value: RES_H / (2 * Math.tan(30 * DEG)) } }, // пикселей на метр на расстоянии 1
-  vertexShader: `attribute float aSize; attribute float aFrame; varying float vFrame; uniform float uScale;
-    void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv;
-      gl_PointSize = aSize * uScale / max(0.1, -mv.z); vFrame = aFrame; }`,
-  fragmentShader: `uniform sampler2D map; varying float vFrame;
-    void main() { vec4 c = texture2D(map, vec2((vFrame + gl_PointCoord.x) * 0.25, 1.0 - gl_PointCoord.y));
-      if (c.a < 0.5) discard; gl_FragColor = vec4(c.rgb, 1.0);
-      #include <colorspace_fragment>
-    }`,
-}));
+// Пул низкополигональных «клубков» одним InstancedMesh. Клубок быстро надувается, потом сжимается и пропадает.
+// Три источника: бег (маленькие облачка позади), прыжок (кольцо вокруг ног) и приземление (сильнее при сильном ударе).
+const DUST_N = 90;
+const dust = new THREE.InstancedMesh(
+  new THREE.IcosahedronGeometry(1, 0),
+  new THREE.MeshBasicMaterial({ color: 0xeeeae2, transparent: true, opacity: 0.8, depthWrite: false }),
+  DUST_N
+);
 dust.frustumCulled = false;
+dust.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 scene.add(dust);
-const dp = Array.from({ length: DUST_N }, () => ({ x: 0, y: -999, z: 0, vx: 0, vy: 0, vz: 0, age: 1, life: 1, size: 0 }));
+const dp = Array.from({ length: DUST_N }, () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, age: 1, life: 1, size: 0, rot: 0 }));
 let dustNext = 0, runPuff = 0;
+const dummyD = new THREE.Object3D();
 function puff(x, y, z, vx, vy, vz, size, life) {
   const d = dp[dustNext]; dustNext = (dustNext + 1) % DUST_N;
-  d.x = x; d.y = y; d.z = z; d.vx = vx; d.vy = vy; d.vz = vz; d.size = size; d.life = life; d.age = 0;
+  d.x = x; d.y = y; d.z = z; d.vx = vx; d.vy = vy; d.vz = vz; d.size = size; d.life = life; d.age = 0; d.rot = Math.random() * 6.28;
 }
 // Кольцо дыма вокруг ног: n клубков, разлетающихся в стороны
 function dustRing(x, y, z, n, speed, size) {
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + Math.random() * 0.5, sp = speed * (0.7 + Math.random() * 0.6);
-    puff(x + Math.cos(a) * 0.25, y + 0.15, z + Math.sin(a) * 0.25, Math.cos(a) * sp, 0.5 + Math.random() * 0.9, Math.sin(a) * sp, size * (0.8 + Math.random() * 0.5), 0.45 + Math.random() * 0.3);
+    puff(x + Math.cos(a) * 0.25, y + 0.08, z + Math.sin(a) * 0.25, Math.cos(a) * sp, 0.5 + Math.random() * 0.9, Math.sin(a) * sp, size * (0.8 + Math.random() * 0.5), 0.45 + Math.random() * 0.3);
   }
 }
 function updateDust(dt) {
   for (let i = 0; i < DUST_N; i++) {
     const d = dp[i];
-    if (d.age >= d.life) { dSize[i] = 0; dPos[i * 3 + 1] = -999; continue; }
-    d.age += dt;
-    const k = Math.exp(-3 * dt);
-    d.vx *= k; d.vz *= k; d.vy = d.vy * k + 0.6 * dt; // тормозится и слегка поднимается
-    d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
-    const t = Math.min(1, d.age / d.life);
-    dPos[i * 3] = d.x; dPos[i * 3 + 1] = d.y; dPos[i * 3 + 2] = d.z;
-    dSize[i] = d.size * (0.7 + 0.9 * t);       // спрайт растёт, пока рассеивается
-    dFrame[i] = Math.min(3, Math.floor(t * 4)); // кадр анимации по возрасту
+    if (d.age >= d.life) { dummyD.scale.setScalar(1e-4); dummyD.position.set(0, -999, 0); }
+    else {
+      d.age += dt;
+      const k = Math.exp(-3 * dt);
+      d.vx *= k; d.vz *= k; d.vy = d.vy * k + 0.6 * dt; // тормозится и слегка поднимается
+      d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
+      const t = Math.min(1, d.age / d.life), s = d.size * (0.35 + 0.65 * Math.min(1, t * 4)) * (1 - t * t);
+      dummyD.position.set(d.x, d.y, d.z); dummyD.scale.setScalar(Math.max(1e-4, s)); dummyD.rotation.set(d.rot, d.rot * 0.7 + t, 0);
+    }
+    dummyD.updateMatrix();
+    dust.setMatrixAt(i, dummyD.matrix);
   }
-  dustGeo.attributes.position.needsUpdate = dustGeo.attributes.aSize.needsUpdate = dustGeo.attributes.aFrame.needsUpdate = true;
+  dust.instanceMatrix.needsUpdate = true;
 }
-function clearDust() { dp.forEach((d) => (d.age = d.life)); updateDust(0); }
+function clearDust() { dp.forEach((d) => (d.age = d.life)); }
 
 
 // ---------- Драконы ----------
@@ -732,11 +705,12 @@ let coyote = 0, face = 0, got = 0, time = 0, won = false;
 const keys = {};
 let mode = 'play', jumpBuf = 0, camA = 0, snapCam = false, clockT = 0, testRun = false, levelId = '';
 let goalToastAt = 0, spawn = [0, 0, 0], cpIdx = -1, lastHud = '';
-const hud = $('hud'), msg = $('msg');
+let menuOpen = false, menuScreen = 'main', introDone = false; // меню паузы / титульный экран
+const hud = $('hud'), msg = $('msg'), hCoins = $('hCoins'), hNeed = $('hNeed'), hTime = $('hTime'), hBest = $('hBest');
 const mouse = new THREE.Vector2();
 
-const HELP_PLAY = 'WASD: бег. Пробел: прыжок. Q/E, стрелки или мышь с зажатой кнопкой: камера. R: заново. M: меню. Флажок — чекпоинт.';
-const HELP_EDIT = 'ЛКМ клик: поставить. ЛКМ тянуть: вращать камеру. ПКМ тянуть: двигать. ПКМ клик: стереть. Колесо: зум. Shift+колесо или Z/X: высота. R: повернуть. F: вся карта. Ctrl+Z: отмена. Своя форма: клики по точкам, Enter — замкнуть, Backspace/ПКМ — убрать точку, Esc — отмена. M: меню.';
+const HELP_PLAY = 'Esc — меню. R — заново. Флажок — чекпоинт.';
+const HELP_EDIT = 'ЛКМ — поставить, ПКМ — стереть, колесо — зум, Z/X — высота, R — поворот. Все клавиши: Esc → Управление.';
 
 let toastT;
 function toast(t, ms = 2200) {
@@ -759,10 +733,12 @@ function reset() {
 function respawn() { clearDust(); p.set(...spawn); v.set(0, 0, 0); st.onGround = false; snapCam = true; }
 
 addEventListener('keydown', (e) => {
+  if (menuOpen && e.code === 'Escape') { e.preventDefault(); showMenu(menuScreen === 'main' ? null : 'main'); return; }
   if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if (menuOpen) { if (e.code === 'KeyM') showMenu(menuScreen === 'main' ? null : 'main'); return; }
   keys[e.code] = true;
   if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
-  if (e.code === 'KeyM') $('panel').classList.toggle('hide');
+  if (e.code === 'KeyM' || (e.code === 'Escape' && !(mode === 'edit' && ed.draw.length))) toggleMenu();
   if (mode === 'play') {
     if (e.code === 'Space') jumpBuf = 0.15;
     if (e.code === 'KeyR') reset();
@@ -782,7 +758,7 @@ addEventListener('keydown', (e) => {
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 addEventListener('mousemove', (e) => {
-  if (mode === 'play' && e.buttons) camA -= e.movementX * 0.005;
+  if (mode === 'play' && !menuOpen && e.buttons) camA -= e.movementX * 0.005;
 });
 
 function win() {
@@ -797,7 +773,7 @@ function win() {
     persist();
   }
   msg.style.display = 'flex';
-  msg.innerHTML = `ЗВЕЗДА!<br>Время: ${time.toFixed(1)} с${total ? `, монет: ${got}/${total}` : ''}${extra}<br>R: сыграть ещё`;
+  msg.innerHTML = `ЗВЕЗДА!<br>Время: ${time.toFixed(1)} с${total ? `, монет: ${got}/${total}` : ''}${extra}<br>R: сыграть ещё · Esc: меню`;
 }
 
 function update(dt) {
@@ -863,8 +839,13 @@ function update(dt) {
   if (!won) time += dt;
 
   const best = save.best[levelId], need = L.req && coins.length && got < coins.length;
-  const txt = `МОНЕТЫ ${got}/${coins.length}${need ? '  НУЖНЫ ВСЕ' : ''}   ВРЕМЯ ${time.toFixed(1)}\n${best != null ? 'РЕКОРД ' + best.toFixed(1) : ''}${cpIdx >= 0 ? '   ЧЕКПОИНТ' : ''}`;
-  if (txt !== lastHud) { hud.textContent = txt; lastHud = txt; }
+  const hv = `${got}/${coins.length}|${need ? 1 : 0}|${time.toFixed(1)}|${best != null ? best.toFixed(1) : '--'}|${cpIdx >= 0 ? 1 : 0}`;
+  if (hv !== lastHud) {
+    lastHud = hv;
+    hCoins.textContent = `×${got}/${coins.length}`; hNeed.textContent = need ? 'нужны все' : '';
+    hTime.textContent = time.toFixed(1); hBest.textContent = best != null ? best.toFixed(1) : '--';
+    document.body.classList.toggle('cp', cpIdx >= 0);
+  }
 
   skinAnim(clockT);
   player.position.copy(p);
@@ -1204,7 +1185,7 @@ function refreshShapeButtons() {
   holder.textContent = '';
   for (let i = 0; i < n; i++) {
     const b = document.createElement('button'), def = shapeDef(i);
-    b.dataset.shape = i; b.textContent = def.icon; b.title = def.name; b.onclick = () => setShape(i);
+    b.className = 'btn'; b.dataset.shape = i; b.textContent = def.icon; b.title = def.name; b.onclick = () => setShape(i);
     holder.append(b);
   }
   if (ed.shape >= n) { ed.shape = 0; ed.dirty = true; }
@@ -1213,22 +1194,36 @@ function refreshShapeButtons() {
 function setShape(i) {
   ed.shape = i; ed.dirty = true; setTool('plat'); markShape();
 }
+// Хотбар инструментов, как в Minecraft: слоты с номером клавиши 1–7
+const TOOL_ICONS = { plat: '▬', coin: '●', goal: '★', start: '⌂', erase: '✖', cp: '⚑', draw: '✎' };
 TOOLS.forEach(([id, name], i) => {
   const b = document.createElement('button');
-  b.dataset.tool = id; b.textContent = `${i + 1} ${name}`; b.onclick = () => setTool(id);
+  b.className = 'slot'; b.dataset.tool = id; b.title = `${name} (${i + 1})`;
+  b.innerHTML = `<span class="n">${i + 1}</span><span class="ic">${TOOL_ICONS[id]}</span><span class="nm">${name}</span>`;
+  b.onclick = () => setTool(id);
   $('tools').append(b);
 });
 
+// Меню: null закрывает его, иначе имя экрана (main, levels, char, settings, controls, work). Пока меню открыто, игра на паузе.
+function showMenu(screen) {
+  menuOpen = !!screen; menuScreen = screen || 'main';
+  document.body.classList.toggle('menu', menuOpen);
+  if (screen) document.querySelectorAll('.screen').forEach((el) => el.classList.toggle('on', el.id === 'scr-' + screen));
+  if (menuOpen) { for (const k in keys) keys[k] = false; jumpBuf = 0; }
+  if (screen === 'main') $('mPlay').textContent = introDone ? 'Продолжить' : 'Играть';
+  if (screen === 'work') loadWork();
+}
+const toggleMenu = () => showMenu(menuOpen ? null : 'main');
+
 function setTab(t) {
-  document.querySelectorAll('.pane').forEach((el) => (el.style.display = el.id === 'pane-' + t ? 'block' : 'none'));
-  document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
+  if (t === 'work') return showMenu('work');
+  showMenu(null);
   const e = t === 'edit';
   helpers.visible = marker.visible = e;
   outlines.forEach((o) => (o.visible = e));
   if (!e) { setHover(null); ed.over = false; cancelDraw(); }
   dragonRoot.visible = dust.visible = !e;
-  hud.style.display = e ? 'none' : '';
-  $('edinfo').style.display = e ? 'block' : 'none';
+  document.body.classList.toggle('editing', e);
   $('help').textContent = e ? HELP_EDIT : HELP_PLAY;
   cv.style.cursor = e ? 'crosshair' : '';
   if (e !== (mode === 'edit')) {
@@ -1244,7 +1239,6 @@ function setTab(t) {
       hist.length = 0; syncUI(); fitView();
     } else { player.visible = true; testRun = true; reset(); }
   }
-  if (t === 'work') loadWork();
 }
 function play(lv) {
   lv.shapes = lv.shapes || []; lv.cps = lv.cps || []; lv.theme = lv.theme | 0; lv.req = !!lv.req;
@@ -1286,7 +1280,7 @@ async function loadWork() {
     list.textContent = items.length ? '' : 'Пока пусто. Станьте первым!';
     for (const it of items) {
       const row = document.createElement('div'); row.className = 'item';
-      const b = document.createElement('button');
+      const b = document.createElement('button'); b.className = 'btn';
       b.textContent = `${it.lv.name} · ${it.author} · 👍${it.likes}`;
       b.onclick = () => play(it.lv);
       const a = document.createElement('a'); a.href = it.url; a.target = '_blank'; a.textContent = '↗';
@@ -1295,8 +1289,17 @@ async function loadWork() {
   } catch { list.textContent = 'Не удалось загрузить Мастерскую (она работает на GitHub Pages).'; }
 }
 
-document.querySelectorAll('#tabs button').forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
-$('panel').addEventListener('click', (e) => { if (e.target.tagName === 'BUTTON') e.target.blur(); });
+$('mPlay').onclick = () => { introDone = true; showMenu(null); };
+$('mLevels').onclick = () => showMenu('levels');
+$('mEdit').onclick = () => { introDone = true; setTab('edit'); };
+$('mWork').onclick = () => showMenu('work');
+$('mChar').onclick = () => showMenu('char');
+$('mSet').onclick = () => showMenu('settings');
+$('mCtl').onclick = () => showMenu('controls');
+document.querySelectorAll('.back').forEach((b) => (b.onclick = () => showMenu('main')));
+document.querySelectorAll('.openmenu').forEach((b) => (b.onclick = toggleMenu));
+$('btnProps').onclick = () => document.body.classList.toggle('noprops');
+document.addEventListener('click', (e) => { if (e.target.tagName === 'BUTTON') e.target.blur(); }); // кнопки не держат фокус, чтобы пробел не нажимал их
 document.querySelectorAll('.link').forEach((b) => (b.onclick = copyLink));
 const genLevel = (seed) => generate(seed, $('seedStyle').value, +$('seedDiff').value, THEMES.length);
 $('btnSeed').onclick = () => play(genLevel($('seed').value.trim() || 'default'));
@@ -1399,7 +1402,7 @@ function loop() {
   const dt = Math.min(frameAcc, 0.05);
   frameAcc = 0;
   clockT += dt;
-  if (mode === 'play') update(dt); else updateEdit(dt);
+  if (!menuOpen) { if (mode === 'play') update(dt); else updateEdit(dt); } // в меню игра на паузе
   updateDragons(dt, clockT);
   clouds.update(dt, clockT, camera.position);
   if (composer) composer.render(); else renderer.render(scene, camera);
@@ -1407,4 +1410,6 @@ function loop() {
 setTool('plat'); syncUI();
 play(classic());
 loadHash();
+update(1e-4); // поставить камеру до показа меню
+showMenu('main');
 loop();
