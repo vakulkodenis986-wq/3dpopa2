@@ -4,300 +4,344 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>N64 Parkour</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <style>
-    :root {
-      --navy: #0a1236; --blue: #2a4bd7; --gold: #ffd800; --red: #e60012; --green: #00a651;
-      --ol: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000; /* белые буквы с чёрной обводкой, как в HUD Mario 64 */
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;image-rendering:pixelated;}
+    html,body{height:100%;background:#000;overflow:hidden;color:#fff;font-family:'Press Start 2P','Courier New',monospace;}
+    canvas{display:block;width:100vw;height:100vh;image-rendering:pixelated;touch-action:none;}
+    #hud,#msg,#help,#toast,#edinfo{pointer-events:none;}
+
+    /* HUD */
+    #hud{position:fixed;left:12px;top:10px;font-size:10px;text-shadow:2px 2px 0 #000;white-space:pre;line-height:1.9;}
+    #edinfo{position:fixed;left:12px;top:10px;display:none;font-size:8px;text-shadow:2px 2px 0 #000;white-space:pre;line-height:1.9;}
+
+    /* WIN SCREEN */
+    #msg{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.78);}
+    .msg-box{
+      background:#000;border:4px solid #ffd800;
+      box-shadow:0 0 0 2px #000,6px 6px 0 2px #ffd800;
+      padding:28px 36px;text-align:center;
+      font-size:13px;line-height:2.4;text-shadow:2px 2px 0 #000;max-width:82vw;
     }
-    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; color: #fff; font-family: "Arial Black", "Trebuchet MS", Verdana, sans-serif; font-weight: bold; }
-    canvas { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; touch-action: none; }
-    button, input, select { font: inherit; box-sizing: border-box; }
-    #hud, #msg, #help, #toast, #edinfo { pointer-events: none; }
 
-    /* ---------- Кнопки ---------- */
-    .btn {
-      display: block; width: 100%; margin: 6px 0; padding: 9px 12px; cursor: pointer; color: #fff; text-align: center;
-      text-transform: uppercase; letter-spacing: 1px; text-shadow: var(--ol); font-size: 14px;
-      background: linear-gradient(#5b7bff, #2a4bd7 55%, #1c36a8); border: 3px solid #fff; border-radius: 10px;
-      box-shadow: 0 4px 0 #0a1a6a, inset 0 2px 0 rgba(255,255,255,.35);
+    /* TOAST */
+    #toast{
+      position:fixed;left:50%;top:14%;transform:translateX(-50%);
+      max-width:72vw;text-align:center;font-size:10px;
+      color:#ffd800;text-shadow:2px 2px 0 #000;
+      background:#000;border:3px solid #ffd800;box-shadow:4px 4px 0 #000;
+      padding:8px 18px;opacity:0;transition:opacity .25s;
     }
-    .btn:hover { background: linear-gradient(#fff07a, #ffd800 55%, #e0b800); color: #000; text-shadow: none; }
-    .btn:hover::before { content: "★ "; }
-    .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #0a1a6a; }
-    .btn:disabled { opacity: .45; cursor: not-allowed; }
-    .btn.on { background: linear-gradient(#fff07a, #ffd800 55%, #e0b800); color: #000; text-shadow: none; }
-    .btn.red { background: linear-gradient(#ff5a64, #e60012 55%, #a8000d); box-shadow: 0 4px 0 #5a0008, inset 0 2px 0 rgba(255,255,255,.35); }
-    .btn.small { display: inline-block; width: auto; margin: 0; padding: 6px 10px; font-size: 12px; }
-    .btn.sq { display: grid; place-items: center; width: 46px; height: 46px; padding: 0; margin: 0; font-size: 22px; }
-    .btn.sq:hover::before, .btn.small:hover::before { content: ""; }
-    .row { display: flex; gap: 8px; }
-    .row > * { flex: 1; min-width: 0; }
-    .grid { display: grid; gap: 6px; }
-    .g2 { grid-template-columns: 1fr 1fr; }
-    .g3 { grid-template-columns: 1fr 1fr 1fr; }
-    .g5 { grid-template-columns: repeat(5, 1fr); }
+    #toast.show{opacity:1;}
 
-    /* ---------- Поля ---------- */
-    label { display: block; margin: 8px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #9fb4ff; text-shadow: 1px 1px 0 #000; }
-    label.chk { display: flex; align-items: center; gap: 8px; color: #fff; }
-    label.chk input { width: 18px; height: 18px; accent-color: var(--gold); }
-    input, select { width: 100%; padding: 6px; margin-top: 2px; background: #000; color: #fff; border: 3px solid #7aa2ff; border-radius: 6px; font-size: 14px; }
-    input[type=color] { padding: 0; height: 30px; cursor: pointer; }
-    input[type=checkbox] { width: auto; }
-    .hint { font-size: 12px; line-height: 1.45; opacity: .8; font-weight: normal; text-shadow: 1px 1px 0 #000; }
-    .sub { margin: 12px 0 4px; color: var(--gold); font-size: 13px; text-transform: uppercase; letter-spacing: 1px; text-shadow: var(--ol); }
-    .item { display: flex; align-items: center; gap: 6px; }
-    .item a { padding: 0 8px; color: var(--gold); text-decoration: none; font-size: 20px; }
+    /* HELP */
+    #help{position:fixed;left:12px;bottom:10px;max-width:calc(100% - 340px);font-size:7px;line-height:1.9;text-shadow:1px 1px 0 #000;color:#666;}
 
-    /* ---------- HUD (справа сверху, как таблица игроков в Roblox) ---------- */
-    #hud { position: fixed; right: 12px; top: 12px; min-width: 150px; padding: 8px 12px; font-size: 20px; text-shadow: var(--ol);
-      background: rgba(5, 10, 40, .6); border: 3px solid var(--gold); border-radius: 12px; }
-    .hrow { display: flex; align-items: center; gap: 8px; line-height: 1.5; white-space: nowrap; }
-    .hrow.dim { font-size: 15px; opacity: .85; }
-    .hrow em { font-style: normal; font-size: 12px; color: var(--gold); }
-    .ico { display: inline-block; width: 18px; height: 18px; flex: none; }
-    .ico.coin { border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff6a0, #ffd800 55%, #b88a00); border: 2px solid #000; }
-    .ico.clock { border-radius: 50%; border: 3px solid #fff; background: radial-gradient(#000 25%, transparent 26%); box-shadow: 0 0 0 2px #000; }
-    .ico.star::before { content: "★"; color: var(--gold); font-size: 20px; line-height: 18px; text-shadow: var(--ol); }
-    #hCp { display: none; color: #6dff9a; font-size: 13px; }
-    body.cp #hCp { display: flex; }
-    body.editing #hud { display: none; }
+    /* ═══════════ PANEL ═══════════ */
+    #panel{
+      position:fixed;right:10px;top:10px;
+      width:310px;max-height:calc(100% - 20px);
+      overflow:hidden;background:#080808;
+      border:4px solid #333;box-shadow:6px 6px 0 #000;
+    }
+    #panel.hide{display:none;}
 
-    /* ---------- Кнопка меню слева сверху (как в Roblox) ---------- */
-    #topleft { position: fixed; left: 12px; top: 12px; display: flex; gap: 8px; z-index: 5; }
-    #edinfo { position: fixed; left: 12px; top: 68px; display: none; font-size: 14px; text-shadow: var(--ol); white-space: pre; line-height: 1.45; }
-    body.editing #edinfo { display: block; }
+    /* Scanlines overlay */
+    #panel::after{
+      content:'';position:absolute;inset:0;pointer-events:none;z-index:500;
+      background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.13) 3px,rgba(0,0,0,.13) 4px);
+    }
 
-    /* ---------- Верхняя панель редактора (как лента в Roblox Studio) ---------- */
-    #edbar { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); display: none; gap: 6px; padding: 6px; z-index: 5;
-      background: rgba(5, 10, 40, .85); border: 3px solid var(--gold); border-radius: 12px; }
-    body.editing #edbar { display: flex; }
+    /* Title bar */
+    #ptitle{
+      background:#0d0d0d;border-bottom:3px solid #222;
+      padding:8px;font-size:9px;color:#ffd800;
+      text-align:center;letter-spacing:3px;text-shadow:2px 2px 0 #000;
+    }
 
-    /* ---------- Хотбар инструментов (как в Minecraft) ---------- */
-    #hotbar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); display: none; padding: 4px; z-index: 5;
-      background: rgba(10, 14, 40, .8); border: 4px solid #000; outline: 3px solid #8b8b9a; border-radius: 4px; }
-    body.editing #hotbar { display: block; }
-    #tools { display: flex; gap: 4px; }
-    .slot { position: relative; width: 62px; height: 62px; padding: 0; cursor: pointer; color: #fff; text-shadow: var(--ol);
-      background: #3a3a48; border: 3px solid #1c1c26; border-radius: 2px; box-shadow: inset 0 0 0 2px #5a5a6c; }
-    .slot:hover { background: #4a4a5e; }
-    .slot.on { border-color: #fff; outline: 3px solid var(--gold); z-index: 1; background: #54546c; }
-    .slot .n { position: absolute; left: 4px; top: 1px; font-size: 11px; opacity: .85; }
-    .slot .ic { display: block; font-size: 24px; line-height: 38px; margin-top: 4px; }
-    .slot .nm { position: absolute; left: 0; right: 0; bottom: 2px; font-size: 9px; letter-spacing: 0; text-transform: uppercase; overflow: hidden; white-space: nowrap; }
-    .slot[data-tool=coin] .ic { color: var(--gold); } .slot[data-tool=goal] .ic { color: #fff07a; }
-    .slot[data-tool=start] .ic { color: #ff6666; } .slot[data-tool=erase] .ic { color: #ff4b4b; }
-    .slot[data-tool=cp] .ic { color: #6dff9a; } .slot[data-tool=draw] .ic { color: #6de0ff; }
+    /* Scrollable area */
+    #pscroll{max-height:calc(100vh - 96px);overflow-y:auto;overflow-x:hidden;padding:7px 8px;}
+    #pscroll::-webkit-scrollbar{width:7px;}
+    #pscroll::-webkit-scrollbar-track{background:#0d0d0d;}
+    #pscroll::-webkit-scrollbar-thumb{background:#2a2a2a;border:2px solid #000;}
 
-    /* ---------- Параметры редактора (справа) ---------- */
-    #props { position: fixed; right: 10px; top: 70px; bottom: 100px; width: 290px; overflow: auto; padding: 10px; display: none; z-index: 4;
-      background: rgba(10, 16, 54, .92); border: 4px solid var(--gold); border-radius: 12px; font-size: 13px; }
-    body.editing:not(.noprops) #props { display: block; }
-    #props .btn { font-size: 12px; padding: 7px 8px; }
-    #shapes .btn { font-size: 16px; padding: 4px 0; margin: 0; text-shadow: none; letter-spacing: 0; }
-    #shapes .btn:hover::before { content: ""; }
-    #shapename { color: var(--gold); margin: 4px 0; font-size: 13px; text-shadow: var(--ol); }
+    /* ── TABS ── */
+    #tabs{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:3px solid #000;}
+    #tabs button{
+      font-family:'Press Start 2P','Courier New',monospace;
+      font-size:7px;padding:7px 2px;
+      border:none;border-right:2px solid #000;
+      cursor:pointer;color:#555;background:#0d0d0d;
+      line-height:1.5;text-transform:uppercase;transition:none;
+    }
+    #tabs button:last-child{border-right:none;}
+    #tabs button:hover:not(.on){color:#999;background:#141414;}
 
-    /* ---------- Подсказки на экране ---------- */
-    #help { position: fixed; left: 12px; bottom: 10px; max-width: 26vw; font-size: 11px; line-height: 1.4; font-weight: normal; text-shadow: 1px 1px 0 #000; }
-    body.editing #help { bottom: 100px; }
-    #status { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); max-width: 70vw; padding: 6px 14px; text-align: center; font-size: 14px; color: var(--gold);
-      text-shadow: var(--ol); background: rgba(5, 10, 40, .75); border: 3px solid var(--gold); border-radius: 10px; pointer-events: none; z-index: 6; }
-    #status:empty { display: none; }
-    #toast { position: fixed; left: 50%; top: 16%; transform: translateX(-50%); max-width: 70vw; text-align: center; font-size: 24px; color: var(--gold); text-shadow: var(--ol); opacity: 0; transition: opacity .25s; }
-    #toast.show { opacity: 1; }
-    #msg { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; font-size: 30px; line-height: 1.5; text-shadow: 3px 3px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000; }
+    /* Tab accent colors */
+    #tabs [data-tab="play"].on   {background:#002200;color:#00ee44;border-bottom:3px solid #00cc33;}
+    #tabs [data-tab="edit"].on   {background:#00003a;color:#6699ff;border-bottom:3px solid #4466ee;}
+    #tabs [data-tab="char"].on   {background:#2a0038;color:#ff66ff;border-bottom:3px solid #cc33ff;}
+    #tabs [data-tab="store"].on  {background:#332200;color:#ffd800;border-bottom:3px solid #cc9900;}
+    #tabs [data-tab="work"].on   {background:#2e0000;color:#ff5555;border-bottom:3px solid #cc2222;}
+    #tabs [data-tab="settings"].on{background:#1a1a1a;color:#aaaaaa;border-bottom:3px solid #777;}
 
-    /* ---------- Меню (экран паузы / титульный экран) ---------- */
-    #menu { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 20;
-      background: radial-gradient(ellipse at center, rgba(10, 20, 90, .45), rgba(0, 0, 20, .8)); }
-    body.menu #menu { display: flex; }
-    .logo { margin: 0 0 14px; font-size: clamp(30px, 7vw, 60px); letter-spacing: 3px; text-shadow: 4px 4px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000; text-align: center; }
-    .screen { display: none; width: min(440px, 92vw); max-height: 78vh; overflow: auto; padding: 14px 16px; background: linear-gradient(#142066, #0a1236);
-      border: 4px solid var(--gold); border-radius: 14px; box-shadow: 0 0 0 4px #000, 0 10px 0 4px rgba(0,0,0,.4); }
-    .screen.on { display: block; }
-    .screen h2 { margin: 0 0 8px; font-size: 20px; text-align: center; color: var(--gold); text-transform: uppercase; text-shadow: var(--ol); letter-spacing: 2px; }
-    .screen .btn.back { margin-top: 12px; }
-    #scr-main .btn { font-size: 17px; padding: 12px; }
-    .keys { width: 100%; border-collapse: collapse; font-size: 12px; font-weight: normal; }
-    .keys td { padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,.15); vertical-align: top; }
-    .keys td:first-child { color: var(--gold); white-space: nowrap; font-weight: bold; padding-right: 10px; }
-    @media (max-width: 900px) { #props { width: 230px; } #help { display: none; } .slot { width: 48px; height: 52px; } .slot .nm { display: none; } }
+    /* ── PANES ── */
+    .pane{display:none;}
+
+    /* ── PIXEL BUTTON ── */
+    .pb{
+      font-family:'Press Start 2P','Courier New',monospace;font-size:8px;
+      display:block;width:100%;padding:8px 6px;margin:3px 0;
+      background:#151515;color:#bbb;
+      border:3px solid #3a3a3a;box-shadow:3px 3px 0 #000;
+      cursor:pointer;text-align:center;text-transform:uppercase;line-height:1.4;
+    }
+    .pb:hover{border-color:#eee;color:#fff;}
+    .pb:active:not(:disabled){box-shadow:0 0 0;transform:translate(3px,3px);}
+    .pb:disabled{opacity:.38;cursor:not-allowed;}
+    .pb:disabled:active{box-shadow:3px 3px 0 #000;transform:none;}
+    .pb.on{background:#ffd800;color:#000;border-color:#fff;}
+
+    /* Color variants */
+    .pb.g {background:#001800;border-color:#007700;color:#00cc33;}
+    .pb.g:hover{background:#002800;border-color:#00dd44;}
+    .pb.b {background:#000028;border-color:#2244cc;color:#5577ff;}
+    .pb.b:hover{background:#00003a;border-color:#5577ff;}
+    .pb.y {background:#221800;border-color:#aa7700;color:#ffd800;}
+    .pb.y:hover{background:#332200;border-color:#ffd800;}
+    .pb.r {background:#220000;border-color:#aa1111;color:#ff5555;}
+    .pb.r:hover{background:#330000;border-color:#ff3333;}
+    .pb.p {background:#1a0028;border-color:#881acc;color:#dd55ff;}
+    .pb.p:hover{background:#280038;border-color:#cc44ff;}
+
+    /* ── INPUT ── */
+    .pi{
+      font-family:'Press Start 2P','Courier New',monospace;font-size:8px;
+      width:100%;padding:7px 6px;background:#000;color:#eee;
+      border:3px solid #333;box-shadow:inset 2px 2px 0 #000;
+      outline:none;line-height:1.4;
+    }
+    .pi:focus{border-color:#ffd800;}
+    select.pi{cursor:pointer;}
+
+    /* ── LABEL ── */
+    .lbl{display:block;font-size:7px;color:#555;margin:6px 0 2px;text-transform:uppercase;letter-spacing:1px;}
+
+    /* ── SECTION HEADER ── */
+    .sec{font-size:8px;color:#ffd800;border-bottom:2px solid #222;padding:3px 0;margin:10px 0 5px;text-transform:uppercase;text-shadow:1px 1px 0 #000;}
+
+    /* ── LEVEL NAME ── */
+    #lvname{font-size:9px;color:#00ee44;margin-bottom:8px;padding:6px;background:#001200;border:2px solid #006622;box-shadow:2px 2px 0 #000;text-align:center;line-height:1.7;word-break:break-all;}
+
+    /* ── GRIDS ── */
+    .g2{display:grid;grid-template-columns:1fr 1fr;gap:3px;margin:3px 0;}
+    .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;margin:3px 0;}
+    .g5{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;margin:3px 0;}
+    .g2>.pb,.g3>.pb,.g5>.pb{margin:0;}
+
+    /* Shapes */
+    #shapes button{
+      font-size:15px;line-height:1;padding:5px 2px;margin:0;
+      background:#0d0d0d;border:2px solid #2a2a2a;box-shadow:2px 2px 0 #000;
+      cursor:pointer;color:#ccc;text-align:center;
+    }
+    #shapes button:hover{border-color:#aaa;}
+    #shapes button.on{background:#001530;border-color:#3355cc;color:#77aaff;}
+
+    /* Tools */
+    #tools button{
+      font-family:'Press Start 2P','Courier New',monospace;font-size:6px;
+      padding:6px 2px;margin:0;background:#0d0d0d;
+      border:2px solid #2a2a2a;box-shadow:2px 2px 0 #000;
+      cursor:pointer;color:#666;text-align:center;text-transform:uppercase;line-height:1.5;
+    }
+    #tools button:hover{border-color:#ccc;color:#ccc;}
+    #tools button.on{background:#001228;border-color:#2255bb;color:#5588ff;}
+
+    /* ── WALLET ── */
+    .wallet-box{text-align:center;padding:10px;background:#0d0d0d;border:3px solid #664400;box-shadow:4px 4px 0 #000;margin-bottom:8px;}
+    .wallet-lbl{font-size:7px;color:#555;margin-bottom:4px;}
+    .wallet-amt{font-size:18px;color:#ffd800;text-shadow:2px 2px 0 #000;}
+
+    /* ── UPGRADES ── */
+    .upg{margin:6px 0;padding:8px;border:2px solid #222244;box-shadow:2px 2px 0 #000;background:#030310;}
+    .upt{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
+    .uname{font-size:9px;color:#ddd;}
+    .ulv{font-size:7px;color:#5577ff;}
+    .bar{height:8px;background:#0d0d0d;border:2px solid #1a1a1a;margin:4px 0;}
+    .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#ffd800,#ff8800);}
+    .upd{font-size:7px;color:#555;margin:3px 0;line-height:1.8;}
+
+    /* ── WORKSHOP ITEMS ── */
+    .witem{display:flex;align-items:center;gap:4px;margin:3px 0;padding:5px;background:#0d0d0d;border:2px solid #1a1a1a;}
+    .witem:hover{border-color:#333;}
+    .witem>.pb{flex:1;margin:0;font-size:7px;}
+    .witem>a{font-family:'Press Start 2P','Courier New',monospace;font-size:8px;padding:5px 7px;color:#ffd800;text-decoration:none;background:#110d00;border:2px solid #664400;flex-shrink:0;}
+
+    /* ── CHARACTER EDITOR ── */
+    #charPreview{display:block;width:180px;height:268px;margin:0 auto 10px;border:3px solid #5500aa;box-shadow:4px 4px 0 #000;image-rendering:pixelated;background:#080012;}
+    .char-name-d{text-align:center;padding:6px;font-size:11px;color:#dd66ff;background:#0e0018;border:2px solid #5500aa;box-shadow:2px 2px 0 #000;margin-bottom:8px;text-shadow:0 0 10px #aa44ff;}
+    .crow{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:4px 0;}
+    .citem{padding:6px;border:2px solid #1a1a1a;background:#0d0d0d;}
+    .clbl{font-size:7px;color:#555;margin-bottom:4px;display:block;}
+    input[type=color]{width:100%;height:26px;border:2px solid #333;background:#000;cursor:pointer;padding:1px;display:block;}
+    input[type=color]:focus{border-color:#aa44ff;}
+
+    /* ── SETTINGS ── */
+    .chk{display:flex;align-items:center;gap:8px;font-size:8px;color:#888;margin:7px 0;cursor:pointer;}
+    .chk input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:#ffd800;flex-shrink:0;}
+    .chk:hover{color:#ddd;}
+
+    /* ── SHAPE NAME ── */
+    #shapename{font-size:8px;color:#5577ff;margin:4px 0;text-align:center;text-shadow:0 0 6px #3355cc;}
+
+    /* ── STATUS BAR ── */
+    #status{min-height:18px;padding:4px 8px;font-size:7px;color:#ffd800;border-top:2px solid #1a1a1a;background:#050505;text-align:center;line-height:1.9;}
+
+    /* ── HINT ── */
+    .hint{font-size:7px;color:#444;line-height:2;margin:6px 0;padding:5px 6px;border-left:2px solid #1a1a1a;}
+
+    /* ── ROW ── */
+    .row{display:flex;gap:4px;}
+    .row>*{flex:1;min-width:0;}
   </style>
 </head>
 <body>
   <div id="game"></div>
-
-  <!-- HUD -->
-  <div id="hud">
-    <div class="hrow"><i class="ico coin"></i><span id="hCoins">0/0</span><em id="hNeed"></em></div>
-    <div class="hrow"><i class="ico clock"></i><span id="hTime">0.0</span></div>
-    <div class="hrow dim"><i class="ico star"></i><span id="hBest">--</span></div>
-    <div class="hrow" id="hCp">⚑ ЧЕКПОИНТ</div>
-  </div>
+  <div id="hud"></div>
   <div id="edinfo"></div>
   <div id="toast"></div>
-  <div id="msg"></div>
+  <div id="msg"><div class="msg-box" id="msg-inner"></div></div>
   <div id="help"></div>
-  <div id="status"></div>
 
-  <!-- Кнопки поверх игры -->
-  <div id="topleft"><button class="btn sq openmenu" title="Меню (Esc)">☰</button></div>
-
-  <!-- Редактор: верхняя панель, хотбар, параметры -->
-  <div id="edbar">
-    <button class="btn small" id="btnUndo">↶ Отмена</button>
-    <button class="btn small" id="camTop">Сверху</button>
-    <button class="btn small" id="camSide">Сбоку</button>
-    <button class="btn small" id="camFit">Вся карта</button>
-    <button class="btn small red" id="btnTest">▶ Играть</button>
-    <button class="btn small" id="btnProps">⚙ Параметры</button>
-  </div>
-  <div id="hotbar"><div id="tools"></div></div>
-
-  <div id="props">
-    <div class="sub" style="margin-top:0">Уровень</div>
-    <input id="ename" maxlength="40" placeholder="Название уровня">
-    <label class="chk"><input type="checkbox" id="edreq"> Монеты обязательны</label>
-    <label>Тема платформ <select id="edtheme"></select></label>
-
-    <div class="sub">Форма платформы (R — повернуть)</div>
-    <div class="grid g5" id="shapes"></div>
-    <div id="shapename"></div>
-    <button class="btn" id="btnDelShape">Удалить свою форму</button>
-    <div id="drawbox" style="display:none">
-      <div class="sub">Рисование формы</div>
-      <p class="hint" id="drawinfo"></p>
-      <div class="row"><button class="btn" id="btnDrawDone">Замкнуть</button><button class="btn" id="btnDrawUndo">Убрать точку</button></div>
-      <button class="btn red" id="btnDrawCancel">Отмена (Esc)</button>
+  <div id="panel">
+    <div id="ptitle">★ N64 PARKOUR ★</div>
+    <div id="tabs">
+      <button data-tab="play">🎮 ИГРА</button>
+      <button data-tab="edit">🔧 РЕД.</button>
+      <button data-tab="char">👤 ПЕРС.</button>
+      <button data-tab="store">🛒 МАГ.</button>
+      <button data-tab="work">🏭 МАС.</button>
+      <button data-tab="settings">⚙ НАС.</button>
     </div>
+    <div id="pscroll">
 
-    <div class="sub">Размер и положение</div>
-    <div class="grid g2">
-      <label>Ширина <input id="edw" type="number" value="3" min="1" max="30" step="0.5"></label>
-      <label>Глубина <input id="edd" type="number" value="3" min="1" max="30" step="0.5"></label>
-      <label>Поворот ° <input id="edrot" type="number" value="0" step="15"></label>
-      <label>Наклон ° <input id="edtilt" type="number" value="0" min="-60" max="60" step="5"></label>
-      <label>Толщина <input id="edk" type="number" value="1" min="0.25" max="20" step="0.5"></label>
-      <label>Высота <input id="edh" type="number" value="0" step="0.5"></label>
-    </div>
-    <label>Шаг сетки
-      <select id="edstep">
-        <option value="0.25">0.25</option>
-        <option value="0.5" selected>0.5</option>
-        <option value="1">1</option>
-        <option value="2">2</option>
-      </select>
-    </label>
-    <label class="chk"><input type="checkbox" id="edsnap" checked> Прилипать к верху платформ</label>
-
-    <div class="sub">Файл</div>
-    <button class="btn" id="btnNew">Новый пустой уровень</button>
-    <button class="btn link">Скопировать ссылку</button>
-    <button class="btn" id="btnSubmit">Отправить в Мастерскую</button>
-  </div>
-
-  <!-- Меню -->
-  <div id="menu">
-    <h1 class="logo"><span style="color:#e60012">N</span><span style="color:#00a651">6</span><span style="color:#ffd800">4</span> <span style="color:#7aa2ff">PARKOUR</span></h1>
-
-    <div class="screen on" id="scr-main">
-      <button class="btn" id="mPlay">Играть</button>
-      <button class="btn" id="mLevels">Выбор уровня</button>
-      <button class="btn" id="mEdit">Редактор уровней</button>
-      <button class="btn" id="mWork">Мастерская</button>
-      <button class="btn" id="mChar">Персонаж</button>
-      <button class="btn" id="mSet">Настройки</button>
-      <button class="btn" id="mCtl">Управление</button>
-    </div>
-
-    <div class="screen" id="scr-levels">
-      <h2>Выбор уровня</h2>
-      <div id="lvname" class="sub" style="text-align:center;margin-top:0"></div>
-      <button class="btn" id="btnClassic">Классический уровень</button>
-      <div class="sub">Сгенерировать</div>
-      <label>Сид <input id="seed" placeholder="любое слово или число"></label>
-      <div class="row">
-        <label>Стиль <select id="seedStyle"></select></label>
-        <label>Сложность <select id="seedDiff"></select></label>
+      <!-- ════ ИГРА ════ -->
+      <div class="pane" id="pane-play">
+        <div id="lvname">ЗАГРУЗКА...</div>
+        <div class="sec">📌 Уровень по сиду</div>
+        <span class="lbl">Слово или число</span>
+        <input class="pi" id="seed" placeholder="лунный_кот">
+        <div class="g2" style="margin-top:4px">
+          <button class="pb g" id="btnSeed">▶ ИГРАТЬ</button>
+          <button class="pb" id="btnRand">🎲 СЛУЧ.</button>
+        </div>
+        <div class="sec">🏛 Встроенные</div>
+        <button class="pb y" id="btnClassic">⭐ КЛАССИКА</button>
+        <div class="sec">📋 Код уровня</div>
+        <input class="pi" id="code" placeholder="вставьте код...">
+        <button class="pb b" id="btnCode">📥 ЗАГРУЗИТЬ КОД</button>
+        <button class="pb link">🔗 СКОПИРОВАТЬ ССЫЛКУ</button>
+        <p class="hint">Соберите все монеты → возьмите звезду. Монеты за победу идут в кошелёк.</p>
       </div>
-      <div class="row"><button class="btn" id="btnSeed">По сиду</button><button class="btn" id="btnRand">Случайный</button></div>
-      <div class="sub">Свой код</div>
-      <input id="code" placeholder="вставьте код уровня">
-      <button class="btn" id="btnCode">Загрузить код</button>
-      <button class="btn link">Скопировать ссылку на уровень</button>
-      <p class="hint">Цель: добраться до звезды. Монеты необязательны, если автор уровня не включил «Монеты обязательны». Флажки — чекпоинты.</p>
-      <button class="btn back">Назад</button>
-    </div>
 
-    <div class="screen" id="scr-char">
-      <h2>Персонаж</h2>
-      <label>Скин <select id="skinSel"></select></label>
-      <div class="grid g3">
-        <label>Поножи <input type="color" id="skLegs"></label>
-        <label>Латы <input type="color" id="skShirt"></label>
-        <label>Шлем <input type="color" id="skHead"></label>
-        <label>Плюмаж <input type="color" id="skCap"></label>
-        <label>Пояс <input type="color" id="skBelt"></label>
+      <!-- ════ РЕДАКТОР ════ -->
+      <div class="pane" id="pane-edit">
+        <span class="lbl">Название уровня</span>
+        <input class="pi" id="ename" maxlength="40" placeholder="Мой уровень">
+        <div class="sec">🔨 Инструмент (1–5)</div>
+        <div class="g3" id="tools"></div>
+        <div class="sec">🧱 Форма (R: повернуть)</div>
+        <div class="g5" id="shapes"></div>
+        <div id="shapename">Прямоугольник</div>
+        <div class="g2" style="margin-top:6px">
+          <label><span class="lbl">Ширина</span><input class="pi" id="edw" type="number" value="3" min="1" max="30" step="0.5"></label>
+          <label><span class="lbl">Глубина</span><input class="pi" id="edd" type="number" value="3" min="1" max="30" step="0.5"></label>
+          <label><span class="lbl">Поворот °</span><input class="pi" id="edrot" type="number" value="0" step="15"></label>
+          <label><span class="lbl">Наклон °</span><input class="pi" id="edtilt" type="number" value="0" min="-60" max="60" step="5"></label>
+          <label><span class="lbl">Толщина</span><input class="pi" id="edk" type="number" value="1" min="0.25" max="20" step="0.5"></label>
+          <label><span class="lbl">Высота</span><input class="pi" id="edh" type="number" value="0" step="0.5"></label>
+        </div>
+        <span class="lbl">Шаг сетки</span>
+        <select class="pi" id="edstep">
+          <option value="0.25">0.25</option>
+          <option value="0.5" selected>0.5</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+        </select>
+        <label class="chk" style="margin-top:6px">
+          <input type="checkbox" id="edsnap" checked> Прилипать к верху платформ
+        </label>
+        <div class="sec">📷 Камера</div>
+        <div class="g3">
+          <button class="pb" id="camTop">⬆ СВЕРХУ</button>
+          <button class="pb" id="camSide">➡ СБОКУ</button>
+          <button class="pb" id="camFit">🔍 ВСЯ</button>
+        </div>
+        <button class="pb" id="btnUndo">↩ ОТМЕНА (Ctrl+Z)</button>
+        <div class="sec">💾 Уровень</div>
+        <button class="pb g" id="btnTest">▶ ТЕСТ УРОВНЯ</button>
+        <button class="pb" id="btnNew">📄 НОВЫЙ</button>
+        <button class="pb link">🔗 СКОПИРОВАТЬ ССЫЛКУ</button>
+        <button class="pb r" id="btnSubmit">📤 В МАСТЕРСКУЮ</button>
+        <p class="hint">ЛКМ тянуть: камера. ПКМ/СКМ: двигать. Колесо: зум. Shift+колесо / Z/X: высота. F: вся карта.</p>
       </div>
-      <button class="btn" id="btnSkinRand">Случайная раскраска</button>
-      <button class="btn back">Назад</button>
-    </div>
 
-    <div class="screen" id="scr-settings">
-      <h2>Настройки</h2>
-      <label>Качество графики
-        <select id="qualitySel">
-          <option value="light">Лёгкая (как N64)</option>
-          <option value="high">Красивая (PBR, отражения, SSAO)</option>
-        </select>
-      </label>
-      <label>Лимит кадров
-        <select id="fpsSel">
-          <option value="30">30 (самое экономное)</option>
-          <option value="60">60</option>
-          <option value="0">Без лимита</option>
-        </select>
-      </label>
-      <button class="btn red" id="btnReset">Сбросить рекорды</button>
-      <button class="btn back">Назад</button>
-    </div>
+      <!-- ════ ПЕРСОНАЖ ════ -->
+      <div class="pane" id="pane-char">
+        <div class="char-name-d" id="charNameD">ИГРОК</div>
+        <canvas id="charPreview" width="180" height="268"></canvas>
+        <span class="lbl">Имя персонажа</span>
+        <input class="pi" id="charName" maxlength="16" placeholder="ИГРОК" style="margin-bottom:6px">
+        <div class="sec">🎨 Цвета</div>
+        <div class="crow">
+          <div class="citem"><span class="clbl">🔴 Рубашка</span><input type="color" id="cShirt" value="#d32f2f"></div>
+          <div class="citem"><span class="clbl">🔵 Штаны</span><input type="color" id="cPants" value="#1565c0"></div>
+          <div class="citem"><span class="clbl">🟡 Кожа</span><input type="color" id="cSkin" value="#ffcc99"></div>
+          <div class="citem"><span class="clbl">⚫ Обувь</span><input type="color" id="cShoes" value="#4e342e"></div>
+        </div>
+        <div class="sec">👒 Головной убор</div>
+        <div class="g3" id="hatBtns"></div>
+        <div style="margin-top:8px">
+          <button class="pb g" id="btnSaveChar">💾 СОХРАНИТЬ</button>
+          <button class="pb" id="btnResetChar">🔄 СБРОСИТЬ</button>
+        </div>
+        <p class="hint">Нажми «Сохранить» — персонаж обновится в игре.</p>
+      </div>
 
-    <div class="screen" id="scr-controls">
-      <h2>Управление</h2>
-      <div class="sub">Игра</div>
-      <table class="keys">
-        <tr><td>WASD</td><td>бег</td></tr>
-        <tr><td>Пробел</td><td>прыжок</td></tr>
-        <tr><td>Q / E, стрелки, мышь</td><td>камера (мышь — с зажатой кнопкой)</td></tr>
-        <tr><td>R</td><td>начать заново</td></tr>
-        <tr><td>Esc / M</td><td>меню</td></tr>
-      </table>
-      <div class="sub">Редактор</div>
-      <table class="keys">
-        <tr><td>1–7</td><td>инструмент (хотбар внизу)</td></tr>
-        <tr><td>ЛКМ клик</td><td>поставить</td></tr>
-        <tr><td>ЛКМ тянуть</td><td>вращать камеру</td></tr>
-        <tr><td>ПКМ тянуть</td><td>двигать камеру</td></tr>
-        <tr><td>ПКМ клик</td><td>стереть</td></tr>
-        <tr><td>Колесо</td><td>приблизить / отдалить</td></tr>
-        <tr><td>Shift+колесо, Z / X</td><td>высота плоскости построения</td></tr>
-        <tr><td>R / Shift+R</td><td>повернуть платформу</td></tr>
-        <tr><td>F</td><td>вся карта</td></tr>
-        <tr><td>Ctrl+Z</td><td>отмена</td></tr>
-        <tr><td>Своя форма</td><td>клики по точкам; Enter или клик по первой — замкнуть; Backspace / ПКМ — убрать точку; Esc — отмена</td></tr>
-      </table>
-      <button class="btn back">Назад</button>
-    </div>
+      <!-- ════ МАГАЗИН ════ -->
+      <div class="pane" id="pane-store">
+        <div class="wallet-box">
+          <div class="wallet-lbl">КОШЕЛЁК</div>
+          <div class="wallet-amt">🪙 <span id="wallet">0</span></div>
+        </div>
+        <div id="upgrades"></div>
+        <p class="hint">Монеты: собери все + возьми звезду. Тест уровня монет не даёт.</p>
+        <button class="pb r" id="btnReset">⚠ СБРОСИТЬ ПРОГРЕСС</button>
+      </div>
 
-    <div class="screen" id="scr-work">
-      <h2>Мастерская</h2>
-      <button class="btn" id="btnWork">Обновить список</button>
-      <div id="worklist"></div>
-      <p class="hint">Уровни игроков. Лайк уровню: поставьте 👍 на его странице (значок ↗).</p>
-      <button class="btn back">Назад</button>
-    </div>
-  </div>
+      <!-- ════ МАСТЕРСКАЯ ════ -->
+      <div class="pane" id="pane-work">
+        <button class="pb" id="btnWork">🔄 ОБНОВИТЬ СПИСОК</button>
+        <div id="worklist" style="margin-top:6px"></div>
+        <p class="hint">Уровни игроков. Лайк: нажмите 👍 на странице Issue (↗).</p>
+      </div>
+
+      <!-- ════ НАСТРОЙКИ ════ -->
+      <div class="pane" id="pane-settings">
+        <div class="sec">🖥 Графика</div>
+        <label class="chk"><input type="checkbox" id="stSSAO" checked> Тени (SSAO)</label>
+        <label class="chk"><input type="checkbox" id="stFog" checked> Туман</label>
+        <label class="chk"><input type="checkbox" id="stDragons" checked> Драконы</label>
+        <label class="chk"><input type="checkbox" id="stClouds" checked> Облака</label>
+        <label class="chk"><input type="checkbox" id="stTint" checked> Цветные платформы</label>
+        <div class="sec">ℹ О игре</div>
+        <p class="hint">N64 Parkour v1.0<br>Three.js + Vite<br><br>M — скрыть/показать меню<br>R — начать заново</p>
+      </div>
+
+    </div><!-- /pscroll -->
+    <div id="status"></div>
+  </div><!-- /panel -->
 
   <script type="module" src="/src/main.js"></script>
 </body>
