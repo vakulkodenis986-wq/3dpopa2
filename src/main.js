@@ -1,3 +1,4 @@
+// src/main.js
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -14,17 +15,15 @@ import { generate, rngFrom, STYLES, DIFFS } from './gen.js';
 const $ = (id) => document.getElementById(id);
 
 // ---------- Настройки графики ----------
-// «Лёгкая» (по умолчанию) — как на N64: освещение Фонга без карт окружения и без SSAO, облегчённое небо и облака.
-// «Красивая» — PBR с отражениями неба и SSAO. Лимит кадров не даёт видеокарте крутить сотни кадров впустую.
 let QUALITY = 'light', FPS_CAP = 60;
 try {
   const q = JSON.parse(localStorage.getItem('n64parkour.v1') || '{}');
   if (q.quality === 'high') QUALITY = 'high';
   if ([0, 30, 60].includes(q.fps)) FPS_CAP = q.fps;
-} catch { /* настройки по умолчанию */ }
+} catch { /* defaults */ }
 const HIGH = QUALITY === 'high';
 
-// ---------- Рендер в стиле N64 ----------
+// ---------- Рендер ----------
 const RES_H = 240;
 const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setPixelRatio(1);
@@ -40,9 +39,8 @@ function drawTex(size, draw, repeat = false) {
   return t;
 }
 
-// Небо: рисуется один раз в картинку 360x180 и используется как фон сцены
 function makeSky() {
-  const W = HIGH ? 1024 : 512, H = W / 2, c = document.createElement('canvas'); // в лёгком режиме небо в 4 раза меньше: быстрее старт
+  const W = HIGH ? 1024 : 512, H = W / 2, c = document.createElement('canvas');
   c.width = W; c.height = H;
   const g = c.getContext('2d'), img = g.createImageData(W, H);
   paintSky(img.data, W, H);
@@ -64,10 +62,9 @@ scene.add(camera);
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 const sun = new THREE.DirectionalLight(0xffffff, 1.3);
-sun.position.set(5, 10, 6); // то же направление, что у солнца на небе (см. sky.js)
+sun.position.set(5, 10, 6);
 scene.add(sun);
 
-// Динамический ambient occlusion (только в «красивом» режиме; в лёгком сцена рисуется напрямую)
 let composer = null, ssao = null;
 if (HIGH) {
   composer = new EffectComposer(renderer);
@@ -78,14 +75,12 @@ if (HIGH) {
   composer.addPass(new OutputPass());
 }
 
-// Дальность камеры. Пороги SSAO заданы в долях дальности, поэтому пересчитываем их вместе с ней
 function setFar(f) {
   camera.far = f; camera.updateProjectionMatrix();
   if (ssao) { ssao.minDistance = 0.125 / f; ssao.maxDistance = 3 / f; }
 }
 setFar(250);
 
-// Редакторские подсказки (сетка, призрак, пунктир, контуры) не должны давать тень в SSAO
 let outlines = [];
 const helpers = new THREE.Group();
 helpers.visible = false;
@@ -121,10 +116,7 @@ const box = (parent, w, h, d, m, x, y, z) => {
 const clouds = createClouds(scene, HIGH ? { count: 36, puffs: 7 } : { count: 20, puffs: 5 });
 
 // ---------- PBR-материалы ----------
-// У платформ физически корректный материал (MeshStandardMaterial): шероховатость и металличность берутся
-// из карты, а отражения — из того же неба, что нарисовано на фоне, с усиленным солнцем.
-// Поэтому плитки блестят на солнце и ловят блики при движении камеры.
-const TILE_M = 2; // метров на одно повторение текстуры: размер плитки не зависит от размера платформы
+const TILE_M = 2;
 const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
 function mapTex(size, fn, srgb) {
@@ -137,16 +129,15 @@ function mapTex(size, fn, srgb) {
   g.putImageData(img, 0, 0);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.magFilter = THREE.NearestFilter;               // пиксельный вид, как на N64
-  t.minFilter = THREE.LinearMipmapLinearFilter;    // но без мерцания вдали
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
   t.anisotropy = Math.min(4, maxAniso);
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   return t;
 }
 
-// Плитка 64x64 = 2x2 клетки по 1 м, в клетках швы. Карты: цвет, «шероховатость/металл» (G/B), рельеф.
 const TS = 64, tileR = rngFrom('tiles');
-const flake = new Uint8Array(TS * TS).map(() => (tileR() < 0.05 ? 1 : 0)); // металлические блёстки
+const flake = new Uint8Array(TS * TS).map(() => (tileR() < 0.05 ? 1 : 0));
 const cellOf = (x, y) => ((x >> 5) + (y >> 5)) & 1;
 const seam = (x, y) => (x & 31) < 2 || (y & 31) < 2;
 const bevel = (x, y) => (x & 31) === 2 || (y & 31) === 2;
@@ -162,7 +153,6 @@ const ormTex = !HIGH ? null : mapTex(TS, (x, y) => {
 }, false);
 const bumpTex = !HIGH ? null : mapTex(TS, (x, y) => { const h = seam(x, y) ? 40 : bevel(x, y) ? 230 : 150 + noise(x, y); return [h, h, h]; }, false);
 
-// Окружение для отражений: то же небо, но солнце ярче 1.0 (HDR), чтобы блики были настоящими
 function makeEnv() {
   const W = 512, H = 256, px = new Uint8ClampedArray(W * H * 4);
   paintSky(px, W, H);
@@ -190,7 +180,6 @@ function makeEnv() {
 }
 const envTex = HIGH ? makeEnv() : null;
 
-// Темы платформ: цвета + «характер» поверхности (rough/metal умножаются на карту)
 const THEMES = [
   { name: 'Классика', colors: [0x4caf50, 0xff9800, 0x42a5f5, 0xe91e63, 0xffeb3b], rough: 0.5, metal: 0.45, env: 1.0 },
   { name: 'Лёд', colors: [0x9fd8ff, 0xc8ecff, 0x7fc4f0, 0xe6f7ff, 0xa8b8ff], rough: 0.22, metal: 0.1, env: 1.4 },
@@ -200,7 +189,6 @@ const THEMES = [
   { name: 'Нефрит', colors: [0x2e9b6a, 0x3fb58a, 0x1f7a5a, 0x66d19e, 0x8fe3b8], rough: 0.3, metal: 0.3, env: 1.2 },
 ];
 const grey = (k) => new THREE.Color().setScalar(Math.max(0, Math.min(1, k)));
-// Блеск «от солнца»: в красивом режиме — PBR (rough/metal), в лёгком — блик Фонга (shininess/specular)
 function platMat(color, th) {
   if (HIGH) {
     return new THREE.MeshStandardMaterial({
@@ -222,18 +210,17 @@ function setShine(m, rough, metal) {
   else { m.shininess = 8 + (1 - rough) * 90; m.specular.copy(grey(0.12 + 0.35 * metal + 0.3 * (1 - rough) ** 2)); }
 }
 
-// ---------- Сохранение: только рекорды ----------
+// ---------- Сохранение ----------
 const SAVE_KEY = 'n64parkour.v1';
 let save = { best: {}, skin: null, quality: QUALITY, fps: FPS_CAP };
 try {
   const s = JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
   if (s.best && typeof s.best === 'object') save.best = s.best;
   if (s.skin && typeof s.skin === 'object') save.skin = s.skin;
-} catch { /* без сохранений тоже работает */ }
+} catch { /* ignore */ }
 function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* ignore */ } }
 
-// ---------- Уровни: формат, кодирование ----------
-// Уровень: { name, plats, coins, cps (чекпоинты), goal, start, shapes (свои формы), req (монеты обязательны), theme }
+// ---------- Уровни ----------
 function classic() {
   const plats = [[0, 0, 0, 8, 8], [0, 0.5, -8, 4, 4], [3, 1.2, -13, 3, 3], [-1, 2, -18, 3, 3],
     [-5, 2.5, -23, 3, 3], [-5, 3.5, -28, 2.5, 2.5], [0, 4.2, -30, 3, 3], [5, 5, -32, 3, 3],
@@ -244,16 +231,13 @@ function classic() {
   };
 }
 
-// Платформа в полном виде: [x, y, z, ширина, глубина, форма, поворот, наклон, толщина]
 const fullP = (a) => [a[0], a[1], a[2], a[3], a[4], a[5] ?? 0, a[6] ?? 0, a[7] ?? 0, a[8] ?? 1];
-// В ссылках и кодах храним без хвоста значений по умолчанию, чтобы коды были короче
 const trimP = (a) => {
   const b = fullP(a), dflt = [0, 0, 0, 0, 0, 0, 0, 0, 1];
   while (b.length > 5 && b[b.length - 1] === dflt[b.length - 1]) b.pop();
   return b;
 };
 
-// Проверка чужих уровней (из ссылки, кода, Мастерской)
 function sanitize(j) {
   const num = (v) => typeof v === 'number' && Number.isFinite(v);
   const ok = (a, n, lo, hi) => Array.isArray(a) && a.length === n && a.every((v) => num(v) && v >= lo && v <= hi);
@@ -293,7 +277,6 @@ function dec(code) {
   catch { return null; }
 }
 
-// Идентификатор уровня для рекордов
 function lvId(lv) {
   if (lv.id) return lv.id;
   if (lv.seed) return `S:${lv.seed}:${lv.style || 'mix'}:${lv.diff || 2}`;
@@ -310,7 +293,7 @@ const coinGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.1, 8).rotateX(Math.PI / 2
 const coinMat = gloss(0xffd800, 0.28, 1, { emissive: 0x2a1c00 });
 const goalGeo = new THREE.IcosahedronGeometry(0.7, 0);
 const goalMat = gloss(0xfff176, 0.22, 0.9, { emissive: 0x6a4a00 });
-const goalLockedMat = new THREE.MeshBasicMaterial({ color: 0x8a94b0, wireframe: true }); // звезда закрыта, пока не собраны все монеты (если включено в уровне)
+const goalLockedMat = new THREE.MeshBasicMaterial({ color: 0x8a94b0, wireframe: true });
 const outlineMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.55 });
 const flagGeo = new THREE.CylinderGeometry(0.2, 0.2, 2.4, 6), clothGeo = new THREE.BoxGeometry(0.9, 0.55, 0.06);
 const flagOff = new THREE.MeshLambertMaterial({ color: 0x9aa4b8 });
@@ -319,12 +302,6 @@ const orbit = { cx: 0, cz: 0, rx: 15, rz: 15, top: 0 };
 let L, levelGroup = new THREE.Group(), parts = [], platMeshes = [], coins = [], flags = [], goal, goalOpen = true, voidY = -15;
 scene.add(levelGroup);
 
-// Геометрия платформы из выпуклых частей. Градиент по вершинам (как Gouraud на N64):
-// светлее сверху и в центре платформы, темнее к краям и вниз.
-// Текстура кладётся по метрам (TILE_M метров на повторение), а не по размеру платформы:
-// при растягивании платформы плитки не растягиваются, а просто добавляются.
-// На пандусе текстура считается вдоль поверхности (умножаем на sec), чтобы не растягивалась и на наклоне.
-// g — тангенс наклона: верх поднимается в сторону -Z.
 function platGeometry(lparts, g) {
   const pos = [], nor = [], col = [], uv = [];
   const K = 1 / TILE_M, sec = Math.sqrt(1 + g * g);
@@ -334,8 +311,6 @@ function platGeometry(lparts, g) {
   let R = 0.001;
   for (const q of lparts) for (const [x, z] of q.poly) R = Math.max(R, Math.hypot(x - gx, z - gz));
   const lit = (x, z) => 1 - 0.3 * Math.min(1, Math.hypot(x - gx, z - gz) / R);
-
-  // внутренние швы между частями одной высоты (общие рёбра) не рисуем
   const key = (a, b, dy) => {
     const A = `${Math.round(a[0] * 1e4)},${Math.round(a[1] * 1e4)}`, B = `${Math.round(b[0] * 1e4)},${Math.round(b[1] * 1e4)}`;
     return (A < B ? A + '|' + B : B + '|' + A) + '|' + dy;
@@ -345,8 +320,6 @@ function platGeometry(lparts, g) {
     const k = key(q.poly[i], q.poly[(i + 1) % q.poly.length], q.dy);
     edgeCount.set(k, (edgeCount.get(k) || 0) + 1);
   }
-
-  // вершина: [x, y, z, яркость, u, v]
   const tri = (A, B, C, want) => {
     const e1x = B[0] - A[0], e1y = B[1] - A[1], e1z = B[2] - A[2];
     const e2x = C[0] - A[0], e2y = C[1] - A[1], e2z = C[2] - A[2];
@@ -367,13 +340,11 @@ function platGeometry(lparts, g) {
     const yt = (z) => q.dy - g * z, yb = (z) => yt(z) - q.T;
     const top = (x, z, b) => [x, yt(z), z, b, x * K, z * K * sec];
     const bot = (x, z) => [x, yb(z), z, 0.3, x * K, z * K];
-    // верх (веером из центра) и низ
     for (let i = 0; i < n; i++) {
       const a = P[i], b = P[(i + 1) % n];
       tri(top(cx, cz, lit(cx, cz)), top(a[0], a[1], lit(a[0], a[1])), top(b[0], b[1], lit(b[0], b[1])), [0, 1, 0]);
       tri(bot(cx, cz), bot(a[0], a[1]), bot(b[0], b[1]), [0, -1, 0]);
     }
-    // стены в два ряда по высоте
     for (let i = 0; i < n; i++) {
       const a = P[i], b = P[(i + 1) % n];
       if (edgeCount.get(key(a, b, q.dy)) > 1) continue;
@@ -453,9 +424,11 @@ function buildLevel(lv) {
   refreshShapeButtons();
 }
 
+// ================================================================
 // ---------- Игрок и раскраски ----------
-// Каждая часть тела — отдельный PBR-материал, поэтому скин меняет не только цвет, но и блеск (металл, глянец).
+// ================================================================
 const SKIN_KEYS = ['legs', 'shirt', 'head', 'cap', 'belt'];
+
 const SKINS = [
   { name: 'Серебряный рыцарь', legs: 0x8d99a6, shirt: 0xc9d3dc, head: 0xd5dde4, cap: 0xd32f2f, belt: 0x5d4037, rough: 0.3, metal: 0.9 },
   { name: 'Золотой рыцарь', legs: 0xb8860b, shirt: 0xffd24d, head: 0xffe08a, cap: 0x1565c0, belt: 0x6d4c00, rough: 0.25, metal: 1 },
@@ -469,48 +442,64 @@ const SKINS = [
   { name: 'Призрак', legs: 0xdedede, shirt: 0xffffff, head: 0xf5f5f5, cap: 0xcfd8ff, belt: 0x9fa8da, rough: 0.2, metal: 0.1 },
   { name: 'Радужный (анимация)', legs: 0x1565c0, shirt: 0xd32f2f, head: 0xffcc99, cap: 0xd32f2f, belt: 0xffffff, rough: 0.25, metal: 0.6, rainbow: true },
 ];
-const player = new THREE.Group();
+
+// Главные материалы (создаём заранее, не лениво)
 const skinMats = {};
-const skinPart = (key, parent, w, h, d, x, y, z) => {
-  skinMats[key] = skinMats[key] || gloss(0xffffff, 0.4, 0.8, { flatShading: true });
-  return box(parent, w, h, d, skinMats[key], x, y, z);
-};
+for (const k of SKIN_KEYS) skinMats[k] = gloss(0xffffff, 0.4, 0.8, { flatShading: true });
 const darkMat = gloss(0x111111, 0.4, 0, { flatShading: true });
-const steelMat = gloss(0xdde3e8, 0.18, 1, { flatShading: true });   // клинок меча, не зависит от скина
-const pivot = (x, y, z) => { const g = new THREE.Group(); g.position.set(x, y, z); player.add(g); return g; };
-// Рыцарь: шлем с забралом и плюмажем, нагрудник, наплечники, щит, меч. Руки и ноги — отдельные шарниры для анимации бега.
-const legL = pivot(-0.17, 0.46, 0), legR = pivot(0.17, 0.46, 0), armL = pivot(-0.42, 1.08, 0), armR = pivot(0.42, 1.08, 0);
-skinPart('legs', legL, 0.26, 0.46, 0.32, 0, -0.23, 0);        // поножи и сабатоны
-skinPart('legs', legR, 0.26, 0.46, 0.32, 0, -0.23, 0);
-skinPart('belt', player, 0.7, 0.12, 0.42, 0, 0.52, 0);        // пояс
-skinPart('shirt', player, 0.62, 0.52, 0.38, 0, 0.84, 0);      // кираса
-skinPart('shirt', player, 0.36, 0.26, 0.05, 0, 0.88, 0.21);   // выпуклость на груди
-skinPart('shirt', armL, 0.26, 0.18, 0.34, 0, 0.02, 0);        // наплечники
-skinPart('shirt', armR, 0.26, 0.18, 0.34, 0, 0.02, 0);
-skinPart('legs', armL, 0.17, 0.42, 0.2, 0, -0.26, 0);         // руки в латах
-skinPart('legs', armR, 0.17, 0.42, 0.2, 0, -0.26, 0);
-skinPart('cap', armL, 0.08, 0.5, 0.4, -0.14, -0.28, 0.04);    // щит: цвет герба
-skinPart('belt', armL, 0.05, 0.14, 0.14, -0.2, -0.28, 0.04);  // умбон щита
-box(armR, 0.06, 0.68, 0.03, steelMat, 0, -0.09, 0.22);       // клинок торчит вверх из кулака
-skinPart('belt', armR, 0.3, 0.05, 0.07, 0, -0.46, 0.22);      // гарда
-skinPart('belt', armR, 0.06, 0.16, 0.06, 0, -0.54, 0.22);     // рукоять
-skinPart('head', player, 0.46, 0.46, 0.46, 0, 1.38, 0);       // шлем
-skinPart('head', player, 0.5, 0.1, 0.5, 0, 1.18, 0);          // горжет
-box(player, 0.34, 0.07, 0.04, darkMat, 0, 1.4, 0.24);         // прорезь забрала
-box(player, 0.05, 0.22, 0.04, darkMat, 0, 1.3, 0.24);         // вертикальная щель
-skinPart('cap', player, 0.1, 0.18, 0.5, 0, 1.69, -0.02);      // гребень и плюмаж
-skinPart('cap', player, 0.1, 0.3, 0.12, 0, 1.55, -0.3);
+const steelMat = gloss(0xdde3e8, 0.18, 1, { flatShading: true });
+
+// Материалы для 3D-превью (простой Phong — работает с любым рендерером)
+const previewMats = {};
+for (const k of SKIN_KEYS) previewMats[k] = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 55, flatShading: true });
+const previewDarkMat  = new THREE.MeshPhongMaterial({ color: 0x111111, shininess: 10,  flatShading: true });
+const previewSteelMat = new THREE.MeshPhongMaterial({ color: 0xdde3e8, shininess: 110, flatShading: true });
+
+// Строит рыцаря на заданном parent с заданными материалами; возвращает шарниры для анимации
+function buildKnightMeshes(parent, mats, dM, sM) {
+  const sp = (key, par, w, h, d, x, y, z) => box(par, w, h, d, mats[key], x, y, z);
+  const piv = (x, y, z) => { const g = new THREE.Group(); g.position.set(x, y, z); parent.add(g); return g; };
+  const legL = piv(-0.17, 0.46, 0), legR = piv(0.17, 0.46, 0);
+  const armL = piv(-0.42, 1.08, 0), armR = piv(0.42, 1.08, 0);
+  sp('legs', legL, 0.26, 0.46, 0.32, 0, -0.23, 0);
+  sp('legs', legR, 0.26, 0.46, 0.32, 0, -0.23, 0);
+  sp('belt', parent, 0.7, 0.12, 0.42, 0, 0.52, 0);
+  sp('shirt', parent, 0.62, 0.52, 0.38, 0, 0.84, 0);
+  sp('shirt', parent, 0.36, 0.26, 0.05, 0, 0.88, 0.21);
+  sp('shirt', armL, 0.26, 0.18, 0.34, 0, 0.02, 0);
+  sp('shirt', armR, 0.26, 0.18, 0.34, 0, 0.02, 0);
+  sp('legs', armL, 0.17, 0.42, 0.2, 0, -0.26, 0);
+  sp('legs', armR, 0.17, 0.42, 0.2, 0, -0.26, 0);
+  sp('cap', armL, 0.08, 0.5, 0.4, -0.14, -0.28, 0.04);
+  sp('belt', armL, 0.05, 0.14, 0.14, -0.2, -0.28, 0.04);
+  box(armR, 0.06, 0.68, 0.03, sM, 0, -0.09, 0.22);
+  sp('belt', armR, 0.3, 0.05, 0.07, 0, -0.46, 0.22);
+  sp('belt', armR, 0.06, 0.16, 0.06, 0, -0.54, 0.22);
+  sp('head', parent, 0.46, 0.46, 0.46, 0, 1.38, 0);
+  sp('head', parent, 0.5, 0.1, 0.5, 0, 1.18, 0);
+  box(parent, 0.34, 0.07, 0.04, dM, 0, 1.4, 0.24);
+  box(parent, 0.05, 0.22, 0.04, dM, 0, 1.3, 0.24);
+  sp('cap', parent, 0.1, 0.18, 0.5, 0, 1.69, -0.02);
+  sp('cap', parent, 0.1, 0.3, 0.12, 0, 1.55, -0.3);
+  return { legL, legR, armL, armR };
+}
+
+// Основной игрок
+const player = new THREE.Group();
+const { legL, legR, armL, armR } = buildKnightMeshes(player, skinMats, darkMat, steelMat);
 scene.add(player);
 
+// Анимация рыцаря
 let skin = SKINS[0], skinId = 0;
 function applySkin(sk) {
   skin = sk;
   for (const k of SKIN_KEYS) {
     const m = skinMats[k];
     m.color.setHex(sk[k]); setShine(m, sk.rough ?? 0.55, sk.metal ?? 0.1);
+    // Синхронизируем материалы превью
+    if (previewMats[k]) previewMats[k].color.setHex(sk[k]);
   }
 }
-// Анимация рыцаря: бег — руки и ноги качаются в противофазе, в прыжке руки подняты
 const kn = { phase: 0, swing: 0, air: 0 };
 function knightAnim(dt, moving, grounded) {
   kn.phase += dt * (moving && grounded ? 14 : 0);
@@ -521,10 +510,15 @@ function knightAnim(dt, moving, grounded) {
   armL.rotation.x = -kn.swing * 0.8 - kn.air * 0.9; armR.rotation.x = kn.swing * 0.8 - kn.air * 1.6;
   player.position.y = p.y + (grounded && moving ? Math.abs(Math.sin(kn.phase)) * 0.05 : 0);
 }
-// «Радужный» скин: цвета плавно переливаются по кругу (у каждой части свой сдвиг)
 function skinAnim(t) {
   if (!skin.rainbow) return;
-  SKIN_KEYS.forEach((k, i) => { if (k !== 'belt') skinMats[k].color.setHSL((t * 0.15 + i * 0.2) % 1, 0.85, 0.55); });
+  SKIN_KEYS.forEach((k, i) => {
+    if (k !== 'belt') {
+      const hsl = (t * 0.15 + i * 0.2) % 1;
+      skinMats[k].color.setHSL(hsl, 0.85, 0.55);
+      if (previewMats[k]) previewMats[k].color.setHSL(hsl, 0.85, 0.55);
+    }
+  });
 }
 const hexStr = (n) => '#' + n.toString(16).padStart(6, '0');
 function syncSkinUI() {
@@ -549,9 +543,76 @@ const shadow = new THREE.Mesh(
 );
 scene.add(shadow);
 
+// ================================================================
+// ---------- 3D-превью персонажа ----------
+// ================================================================
+let pvRenderer = null, pvScene = null, pvCam = null, pvPlayer = null, pvAngle = 0;
+
+function initCharPreview() {
+  const container = $('charPreview');
+  if (!container || pvRenderer) return; // уже инициализировано
+
+  // Убираем плейсхолдер
+  container.innerHTML = '';
+
+  try {
+    const pvCanvas = document.createElement('canvas');
+    pvCanvas.width = 192; pvCanvas.height = 256;
+    container.appendChild(pvCanvas);
+
+    pvRenderer = new THREE.WebGLRenderer({ canvas: pvCanvas, antialias: false });
+    pvRenderer.setPixelRatio(1);
+    pvRenderer.setSize(192, 256, false);
+    // CSS размер задаётся через .char-preview-box canvas { width:100%; height:100% }
+
+    // Сцена превью
+    pvScene = new THREE.Scene();
+    pvScene.background = new THREE.Color(0x060612);
+
+    pvScene.add(new THREE.AmbientLight(0xffffff, 0.45));
+    const pl1 = new THREE.DirectionalLight(0xffffff, 1.3);
+    pl1.position.set(4, 8, 5); pvScene.add(pl1);
+    const pl2 = new THREE.DirectionalLight(0x3355ff, 0.5);
+    pl2.position.set(-3, 2, -4); pvScene.add(pl2);
+
+    // Пол
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(2.2, 8).rotateX(-Math.PI / 2),
+      new THREE.MeshLambertMaterial({ color: 0x0c0c28 })
+    );
+    floor.position.y = -0.01;
+    pvScene.add(floor);
+
+    // Рыцарь (те же материалы previewMats — синхронизируются при смене скина)
+    pvPlayer = new THREE.Group();
+    buildKnightMeshes(pvPlayer, previewMats, previewDarkMat, previewSteelMat);
+    pvScene.add(pvPlayer);
+
+    // Камера
+    pvCam = new THREE.PerspectiveCamera(38, 192 / 256, 0.1, 50);
+
+    // Сразу синхронизируем цвета с текущим скином
+    for (const k of SKIN_KEYS) if (previewMats[k]) previewMats[k].color.setHex(skin[k]);
+
+  } catch (e) {
+    console.warn('Превью персонажа недоступно:', e);
+    pvRenderer = null;
+    if (container) container.innerHTML = '<div class="pv-placeholder">Превью<br>недоступно</div>';
+  }
+}
+
+function renderPreview(dt) {
+  if (!pvRenderer || !pvScene || !pvCam || !pvPlayer) return;
+  pvAngle += dt * 0.65;
+  pvPlayer.rotation.y = pvAngle;
+  // Лёгкое покачивание камеры вверх-вниз
+  const camY = 1.45 + Math.sin(pvAngle * 0.4) * 0.12;
+  pvCam.position.set(0, camY, 3.8);
+  pvCam.lookAt(0, 0.8, 0);
+  pvRenderer.render(pvScene, pvCam);
+}
+
 // ---------- Дым из-под ног ----------
-// Пул низкополигональных «клубков» одним InstancedMesh. Клубок быстро надувается, потом сжимается и пропадает.
-// Три источника: бег (маленькие облачка позади), прыжок (кольцо вокруг ног) и приземление (сильнее при сильном ударе).
 const DUST_N = 90;
 const dust = new THREE.InstancedMesh(
   new THREE.IcosahedronGeometry(1, 0),
@@ -568,7 +629,6 @@ function puff(x, y, z, vx, vy, vz, size, life) {
   const d = dp[dustNext]; dustNext = (dustNext + 1) % DUST_N;
   d.x = x; d.y = y; d.z = z; d.vx = vx; d.vy = vy; d.vz = vz; d.size = size; d.life = life; d.age = 0; d.rot = Math.random() * 6.28;
 }
-// Кольцо дыма вокруг ног: n клубков, разлетающихся в стороны
 function dustRing(x, y, z, n, speed, size) {
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + Math.random() * 0.5, sp = speed * (0.7 + Math.random() * 0.6);
@@ -582,7 +642,7 @@ function updateDust(dt) {
     else {
       d.age += dt;
       const k = Math.exp(-3 * dt);
-      d.vx *= k; d.vz *= k; d.vy = d.vy * k + 0.6 * dt; // тормозится и слегка поднимается
+      d.vx *= k; d.vz *= k; d.vy = d.vy * k + 0.6 * dt;
       d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
       const t = Math.min(1, d.age / d.life), s = d.size * (0.35 + 0.65 * Math.min(1, t * 4)) * (1 - t * t);
       dummyD.position.set(d.x, d.y, d.z); dummyD.scale.setScalar(Math.max(1e-4, s)); dummyD.rotation.set(d.rot, d.rot * 0.7 + t, 0);
@@ -594,9 +654,8 @@ function updateDust(dt) {
 }
 function clearDust() { dp.forEach((d) => (d.age = d.life)); }
 
-
 // ---------- Драконы ----------
-const dragonRoot = new THREE.Group(); // чтобы разом прятать драконов в редакторе
+const dragonRoot = new THREE.Group();
 scene.add(dragonRoot);
 const scaleTex = drawTex(32, (g) => {
   g.fillStyle = '#222'; g.fillRect(0, 0, 32, 32);
@@ -635,7 +694,6 @@ const spikeG = new THREE.ConeGeometry(0.3, 0.9, 4);
 const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffee00 });
 const dragons = [];
 
-// f: во сколько раз орбита шире уровня, h: высота полёта, spd: скорость (знак = направление)
 function makeDragon(color, f, h, spd, ph) {
   const body = mk(color), bone = mk(0xe8dcc0);
   const dark = mk(new THREE.Color(color).multiplyScalar(0.6), { side: THREE.DoubleSide });
@@ -679,7 +737,6 @@ function updateDragons(dt, time) {
   const tw = 0.5 + 0.4 * Math.sin(time * 5);
   sparkleMats.forEach((m) => (m.emissiveIntensity = tw));
   for (const d of dragons) {
-    // орбита подстраивается под размер текущего уровня
     const rx = orbit.rx * d.f + 32, rz = orbit.rz * d.f + 32, avg = (rx + rz) / 2;
     const s = Math.sign(d.spd), gap = 3.4 / avg, y0 = d.h + orbit.top * 0.5;
     d.a += (d.spd / avg) * dt;
@@ -705,12 +762,12 @@ let coyote = 0, face = 0, got = 0, time = 0, won = false;
 const keys = {};
 let mode = 'play', jumpBuf = 0, camA = 0, snapCam = false, clockT = 0, testRun = false, levelId = '';
 let goalToastAt = 0, spawn = [0, 0, 0], cpIdx = -1, lastHud = '';
-let menuOpen = false, menuScreen = 'main', introDone = false; // меню паузы / титульный экран
+let menuOpen = false, menuScreen = 'main', introDone = false;
 const hud = $('hud'), msg = $('msg'), hCoins = $('hCoins'), hNeed = $('hNeed'), hTime = $('hTime'), hBest = $('hBest');
 const mouse = new THREE.Vector2();
 
 const HELP_PLAY = 'Esc — меню. R — заново. Флажок — чекпоинт.';
-const HELP_EDIT = 'ЛКМ — поставить, ПКМ — стереть, колесо — зум, Z/X — высота, R — поворот. Все клавиши: Esc → Управление.';
+const HELP_EDIT = 'ЛКМ — поставить, ПКМ — стереть, колесо — зум, Z/X — высота, R — поворот.';
 
 let toastT;
 function toast(t, ms = 2200) {
@@ -725,7 +782,7 @@ function reset() {
   p.set(...spawn); v.set(0, 0, 0); st.onGround = false;
   got = 0; time = 0; won = false; jumpBuf = 0; coyote = 0;
   coins.forEach((c) => (c.visible = true));
-  setGoalOpen(!L.req || coins.length === 0); // звезда закрыта только если в уровне включены обязательные монеты
+  setGoalOpen(!L.req || coins.length === 0);
   levelId = lvId(L);
   msg.style.display = 'none';
   snapCam = true;
@@ -789,16 +846,14 @@ function update(dt) {
   jumpBuf -= dt;
   if (jumpBuf > 0 && coyote > 0) { v.y = JUMP; coyote = 0; jumpBuf = 0; st.onGround = false; dustRing(p.x, p.y, p.z, 7, 1.8, 0.28); }
 
-  // Физика мелкими шагами, чтобы быстрое падение или бег не проскакивали сквозь платформы
   const n = Math.max(1, Math.ceil(dt / 0.01)), h = dt / n;
   let landVy = 0;
   for (let i = 0; i < n; i++) {
     v.y = Math.max(-35, v.y - GRAV * h);
     stepBody(parts, p, v, h, st);
-    if (st.landed) landVy = Math.min(landVy, st.landVy); // приземление может случиться на любом подшаге
+    if (st.landed) landVy = Math.min(landVy, st.landVy);
   }
   if (landVy < -5) dustRing(p.x, p.y, p.z, Math.min(14, 6 + Math.round(-landVy / 3)), Math.min(4, 1.5 - landVy * 0.12), 0.32 + Math.min(0.25, -landVy * 0.01));
-  // бег: маленькие облачка позади, чаще при движении на земле
   runPuff -= dt;
   if (st.onGround && len > 0 && runPuff <= 0) {
     runPuff = 0.07;
@@ -809,7 +864,6 @@ function update(dt) {
 
   if (p.y < voidY) respawn();
 
-  // чекпоинты
   (L.cps || []).forEach((c, i) => {
     if (i !== cpIdx && Math.abs(p.x - c[0]) < 2.2 && Math.abs(p.z - c[2]) < 2.2 && Math.abs(p.y - c[1]) < 1.2) {
       if (cpIdx >= 0) setFlag(cpIdx, false);
@@ -865,14 +919,13 @@ function update(dt) {
 const TOOLS = [['plat', 'Платформа'], ['coin', 'Монета'], ['goal', 'Звезда'], ['start', 'Старт'], ['erase', 'Стереть'], ['cp', 'Чекпоинт'], ['draw', 'Своя форма']];
 const ed = {
   tool: 'plat', shape: 0, w: 3, d: 3, rot: 0, tilt: 0, k: 1, h: 0, step: 0.5, snap: true,
-  mx: 0, my: 0, mz: 0, below: null,                // куда сейчас целится курсор и что под ним
-  tx: 0, ty: 0, tz: 0, yaw: 0.5, pitch: 0.95, dist: 22, // камера: точка, вокруг которой вращаемся
+  mx: 0, my: 0, mz: 0, below: null,
+  tx: 0, ty: 0, tz: 0, yaw: 0.5, pitch: 0.95, dist: 22,
   over: false, dirty: true, draw: [], drawY: 0,
 };
 const ray = new THREE.Raycaster(), ray2 = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const hitP = new THREE.Vector3(), rayO = new THREE.Vector3(), DOWN = new THREE.Vector3(0, -1, 0);
 
-// Призрак платформы, сетка, пунктир вниз и «тень» на поверхности под курсором: всё это даёт ощущение глубины
 const ghostShape = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0x7dff9a, transparent: true, opacity: 0.5, depthWrite: false }));
 const ghostEdges = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffffff }));
 ghostShape.add(ghostEdges);
@@ -889,7 +942,6 @@ for (const g of [grid1, grid2]) { g.material.transparent = true; g.material.dept
 grid1.material.opacity = 0.12; grid2.material.opacity = 0.3;
 helpers.add(grid1, grid2, ghostShape, ghostBox, footprint, dot, dropLine);
 
-// Контур своей формы, которую рисуют: линия, замкнутая на курсор (красная, если есть самопересечение), и точки
 const drawGeo = new THREE.BufferGeometry();
 const drawLine = new THREE.LineLoop(drawGeo, new THREE.LineBasicMaterial({ color: 0xffee55, depthTest: false }));
 const drawPts = new THREE.Points(drawGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 6, sizeAttenuation: false, depthTest: false }));
@@ -909,4 +961,511 @@ function refreshDraw(cursor) {
 }
 
 function rebuildGhost() {
-  const pl = normPlat([0, 0, 0, ed.w, ed.d... (осталось: 27 кб)
+  const pl = normPlat([0, 0, 0, ed.w, ed.d, ed.shape, 0, ed.tilt, ed.k]);
+  const geo = platGeometry(localParts(pl), Math.tan(ed.tilt * DEG));
+  ghostShape.geometry.dispose(); ghostShape.geometry = geo;
+  ghostEdges.geometry.dispose(); ghostEdges.geometry = new THREE.EdgesGeometry(geo, 25);
+  footprint.geometry = geo;
+  ed.dirty = false;
+}
+
+const hist = [];
+const snap = () => JSON.stringify({ name: L.name, plats: L.plats, coins: L.coins, cps: L.cps, shapes: L.shapes, req: L.req, theme: L.theme, goal: L.goal, start: L.start });
+function pushHist() { hist.push(snap()); if (hist.length > 60) hist.shift(); }
+function undo() {
+  const s = hist.pop();
+  if (!s) return say('Нечего отменять');
+  Object.assign(L, JSON.parse(s));
+  ed.draw = [];
+  edited();
+  $('ename').value = L.name; syncLevelUI();
+}
+
+function computePlacement() {
+  const rd = (x) => Math.round(x / ed.step) * ed.step, lim = (x) => Math.max(-290, Math.min(290, x));
+  ray.setFromCamera(mouse, camera);
+  const planeY = ed.tool === 'draw' && ed.draw.length ? ed.drawY : ed.h;
+  let x = 0, z = 0, y = planeY, got = false;
+  if (ed.snap && ed.tool !== 'erase' && ed.tool !== 'draw') {
+    const hit = ray.intersectObjects(platMeshes, false)[0];
+    if (hit && hit.face && hit.face.normal.y > 0.5) {
+      x = rd(hit.point.x); z = rd(hit.point.z); y = Math.round(hit.point.y * 100) / 100; got = true;
+    }
+  }
+  if (!got) {
+    plane.constant = -planeY;
+    if (!ray.ray.intersectPlane(plane, hitP)) return false;
+    x = rd(hitP.x); z = rd(hitP.z);
+  }
+  ed.mx = lim(x); ed.mz = lim(z); ed.my = y;
+  rayO.set(ed.mx, ed.my + 0.02, ed.mz);
+  ray2.set(rayO, DOWN); ray2.far = 200;
+  const b = ray2.intersectObjects(platMeshes, false)[0];
+  ed.below = b ? b.point.y : null;
+  return true;
+}
+
+function setHover(o) {
+  if (hoverObj === o) return;
+  if (hoverObj) { if (hoverObj.userData.k === 'p') hoverObj.material.emissive.setHex(0); else hoverObj.scale.setScalar(1); }
+  hoverObj = o;
+  if (o) { if (o.userData.k === 'p') o.material.emissive.setHex(0xaa2222); else o.scale.setScalar(1.5); }
+}
+
+const fmt = (x) => String(Math.round(x * 100) / 100);
+let lastInfo = '';
+const GHOST_BOX = { coin: [0.8, 0.8, 0.8, 1.3], goal: [1.4, 1.4, 1.4, 1.6], start: [0.8, 1.2, 0.8, 0.6], cp: [0.6, 2.4, 0.6, 1.2] };
+
+function updateGuides() {
+  const t = ed.tool, plat = t === 'plat';
+  const have = ed.over && computePlacement();
+  ghostShape.visible = have && plat;
+  ghostBox.visible = have && !!GHOST_BOX[t];
+  dropLine.visible = footprint.visible = dot.visible = false;
+  const gx = have ? ed.mx : ed.tx, gz = have ? ed.mz : ed.tz, gy = have ? ed.my : ed.h;
+  grid1.position.set(Math.round(gx), gy + 0.03, Math.round(gz));
+  grid2.position.set(Math.round(gx / 5) * 5, gy + 0.03, Math.round(gz / 5) * 5);
+
+  let txt = '';
+  if (have) {
+    if (t === 'erase') {
+      ray.setFromCamera(mouse, camera);
+      const hit = ray.intersectObjects(levelGroup.children, false)[0];
+      setHover(hit && (hit.object.userData.k === 'p' || hit.object.userData.k === 'c' || hit.object.userData.k === 'f') ? hit.object : null);
+    } else {
+      setHover(null);
+      let startY = ed.my;
+      if (plat) {
+        if (ed.dirty) rebuildGhost();
+        ghostShape.position.set(ed.mx, ed.my, ed.mz); ghostShape.rotation.y = ed.rot * DEG;
+      } else if (GHOST_BOX[t]) {
+        const S = GHOST_BOX[t];
+        ghostBox.scale.set(S[0], S[1], S[2]); ghostBox.position.set(ed.mx, ed.my + S[3], ed.mz);
+        startY = ed.my + S[3];
+      }
+      const bottom = ed.below != null ? ed.below : startY - 30;
+      const a = dropGeo.attributes.position;
+      a.setXYZ(0, ed.mx, startY, ed.mz); a.setXYZ(1, ed.mx, bottom, ed.mz); a.needsUpdate = true;
+      dropLine.visible = startY - bottom > 0.05;
+      if (ed.below != null && ed.my - ed.below > 0.05) {
+        const f2 = plat ? footprint : dot;
+        f2.visible = true; f2.position.set(ed.mx, ed.below + 0.04, ed.mz);
+        if (plat) { f2.rotation.y = ed.rot * DEG; f2.scale.set(1, 0.02, 1); }
+      }
+    }
+    txt = `X ${fmt(ed.mx)}   Z ${fmt(ed.mz)}   ВЫСОТА ${fmt(ed.my)}` + (ed.below != null ? `   (над платформой +${fmt(ed.my - ed.below)})` : '   (под ним пусто)') + '\n';
+  } else setHover(null);
+  if (t === 'draw') refreshDraw(have ? [ed.mx, ed.mz] : null); else drawLine.visible = drawPts.visible = false;
+  txt += `Плоскость высоты: ${fmt(ed.h)}${ed.snap ? ' (прилипание к платформам)' : ''}   Платформ: ${L.plats.length}/80   Монет: ${L.coins.length}/100   Чекпоинтов: ${L.cps.length}/20${L.req ? '   [монеты обязательны]' : ''}`;
+  if (txt !== lastInfo) { $('edinfo').textContent = txt; lastInfo = txt; }
+}
+
+function updateEdit(dt) {
+  ed.yaw += ((keys.KeyQ ? 1 : 0) - (keys.KeyE ? 1 : 0)) * 1.8 * dt;
+  const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), r = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), sp = ed.dist * 0.8 * dt;
+  ed.tx += (-Math.sin(ed.yaw) * f + Math.cos(ed.yaw) * r) * sp;
+  ed.tz += (-Math.cos(ed.yaw) * f - Math.sin(ed.yaw) * r) * sp;
+  ed.ty += (ed.h - ed.ty) * (1 - Math.exp(-8 * dt));
+  const cp = Math.cos(ed.pitch);
+  camera.position.set(ed.tx + Math.sin(ed.yaw) * cp * ed.dist, ed.ty + Math.sin(ed.pitch) * ed.dist, ed.tz + Math.cos(ed.yaw) * cp * ed.dist);
+  camera.lookAt(ed.tx, ed.ty, ed.tz);
+  camera.updateMatrixWorld();
+  updateGuides();
+  coins.forEach((c) => (c.rotation.y += dt * 4));
+  goal.rotation.y += dt * 2;
+}
+
+function fitView() {
+  const B = partsBounds(parts);
+  let x0 = B.minX, x1 = B.maxX, z0 = B.minZ, z1 = B.maxZ;
+  for (const [x, , z] of [...L.coins, ...L.cps, L.goal, L.start]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+  ed.tx = (x0 + x1) / 2; ed.tz = (z0 + z1) / 2;
+  ed.dist = Math.min(180, Math.max(10, Math.hypot(x1 - x0, z1 - z0) * 0.9 + 6));
+  ed.pitch = 0.9;
+}
+
+function edited() { L.seed = null; L.id = null; L.style = null; buildLevel(L); if (mode === 'edit') setGoalOpen(true); $('lvname').textContent = L.name; }
+function erase() {
+  ray.setFromCamera(mouse, camera);
+  const hit = ray.intersectObjects(levelGroup.children, false)[0];
+  const u = hit && hit.object.userData;
+  if (!u) return;
+  if (u.k === 'p' && L.plats.length > 1) { pushHist(); L.plats.splice(u.i, 1); }
+  else if (u.k === 'c') { pushHist(); L.coins.splice(u.i, 1); }
+  else if (u.k === 'f') { pushHist(); L.cps.splice(u.i, 1); }
+  else return;
+  edited();
+}
+function place() {
+  if (!computePlacement()) return;
+  const { tool: t, mx: x, my: y, mz: z } = ed;
+  if (t === 'erase') return erase();
+  if (t === 'draw') return addDrawPoint();
+  if (t === 'cp' && L.cps.length >= 20) return say('Максимум 20 чекпоинтов');
+  if (t === 'plat' && L.plats.length >= 80) return say('Максимум 80 платформ');
+  if (t === 'coin' && L.coins.length >= 100) return say('Максимум 100 монет');
+  pushHist();
+  if (t === 'plat') L.plats.push([x, y, z, ed.w, ed.d, ed.shape, ed.rot, ed.tilt, ed.k]);
+  else if (t === 'coin') L.coins.push([x, y + 1.3, z]);
+  else if (t === 'goal') L.goal = [x, y + 1.6, z];
+  else if (t === 'start') L.start = [x, y, z];
+  else if (t === 'cp') L.cps.push([x, y, z]);
+  edited();
+}
+
+const cv = renderer.domElement;
+const drag = { on: false, btn: 0, x: 0, y: 0, sx: 0, sy: 0, moved: false, shift: false };
+const setMouse = (e) => mouse.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+cv.addEventListener('contextmenu', (e) => e.preventDefault());
+cv.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });
+cv.addEventListener('pointerdown', (e) => {
+  if (mode !== 'edit') return;
+  cv.setPointerCapture(e.pointerId);
+  Object.assign(drag, { on: true, btn: e.button, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, moved: false, shift: e.shiftKey });
+  setMouse(e); ed.over = true;
+});
+cv.addEventListener('pointermove', (e) => {
+  if (mode !== 'edit') return;
+  setMouse(e); ed.over = true;
+  if (!drag.on) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.x = e.clientX; drag.y = e.clientY;
+  if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 5) drag.moved = true;
+  if (!drag.moved) return;
+  if (drag.btn === 0 && !drag.shift) {
+    ed.yaw -= dx * 0.006;
+    ed.pitch = Math.max(0.08, Math.min(1.5, ed.pitch + dy * 0.005));
+  } else {
+    const k = ed.dist * 0.0012, sx = Math.cos(ed.yaw), sz = -Math.sin(ed.yaw), fx = -Math.sin(ed.yaw), fz = -Math.cos(ed.yaw);
+    const fk = k / Math.max(0.35, Math.sin(ed.pitch));
+    ed.tx += -sx * dx * k + fx * dy * fk; ed.tz += -sz * dx * k + fz * dy * fk;
+  }
+});
+cv.addEventListener('pointerup', (e) => {
+  if (!drag.on) return;
+  drag.on = false;
+  if (mode !== 'edit' || drag.moved) return;
+  setMouse(e);
+  if (drag.btn === 0) place();
+  else if (drag.btn === 2) { if (ed.tool === 'draw' && ed.draw.length) undoDrawPoint(); else erase(); }
+});
+cv.addEventListener('pointerleave', () => { if (!drag.on) ed.over = false; });
+cv.addEventListener('wheel', (e) => {
+  if (mode !== 'edit') return;
+  e.preventDefault();
+  const dlt = e.deltaY || e.deltaX;
+  if (e.shiftKey) { ed.h += dlt < 0 ? 0.5 : -0.5; syncUI(); }
+  else ed.dist = Math.max(4, Math.min(180, ed.dist * (1 + Math.sign(dlt) * 0.1)));
+}, { passive: false });
+
+// ---------- Меню, Мастерская, ссылки ----------
+let sayT;
+function say(t) { $('status').textContent = t; clearTimeout(sayT); sayT = setTimeout(() => ($('status').textContent = ''), 4000); }
+
+function syncUI() {
+  $('edw').value = ed.w; $('edd').value = ed.d; $('edrot').value = ed.rot;
+  $('edtilt').value = ed.tilt; $('edk').value = ed.k; $('edh').value = ed.h;
+}
+function syncLevelUI() { $('edreq').checked = !!L.req; $('edtheme').value = L.theme | 0; }
+
+function updateDrawUI() {
+  const n = ed.draw.length;
+  $('drawinfo').textContent = n
+    ? `Точек: ${n}. ${n < 3 ? 'Нужно минимум 3.' : 'Замкните: клик по первой точке или Enter.'}`
+    : 'Кликайте точки контура. Форма может быть любой, но без самопересечений.';
+  $('btnDrawDone').disabled = n < 3;
+  $('btnDrawUndo').disabled = n < 1;
+}
+function setTool(t) {
+  ed.tool = t;
+  if (t !== 'draw') ed.draw = [];
+  $('drawbox').style.display = t === 'draw' ? 'block' : 'none';
+  updateDrawUI();
+  document.querySelectorAll('#tools button').forEach((b) => b.classList.toggle('on', b.dataset.tool === t));
+}
+
+function addDrawPoint() {
+  const pt = [ed.mx, ed.mz], n = ed.draw.length;
+  if (n === 0) ed.drawY = ed.h;
+  if (n >= 3 && Math.hypot(pt[0] - ed.draw[0][0], pt[1] - ed.draw[0][1]) < Math.max(0.35, ed.step * 0.75)) return finishDraw();
+  if (n >= 40) return say('Максимум 40 точек. Замкните форму (Enter)');
+  if (!chainOk(ed.draw, pt)) return say('Линии не должны пересекаться');
+  ed.draw.push(pt); updateDrawUI();
+}
+function undoDrawPoint() { ed.draw.pop(); updateDrawUI(); }
+function cancelDraw() { ed.draw = []; updateDrawUI(); }
+const r3 = (x) => Math.round(x * 1000) / 1000;
+function finishDraw() {
+  const pts = ed.draw;
+  if (pts.length < 3) return say('Нужно минимум 3 точки');
+  if (!isSimplePolygon(pts)) return say('Контур пересекает сам себя');
+  if (L.shapes.length >= 24) return say('Максимум 24 своих формы');
+  if (L.plats.length >= 80) return say('Максимум 80 платформ');
+  const nz = normalizeShape(pts);
+  if (nz.w < 1 || nz.d < 1 || nz.w > 30 || nz.d > 30) return say('Размер формы должен быть от 1 до 30');
+  pushHist();
+  L.shapes.push(nz.poly);
+  const idx = SHAPES.length + L.shapes.length - 1;
+  L.plats.push([r3(nz.cx), r3(ed.drawY), r3(nz.cz), r3(nz.w), r3(nz.d), idx, 0, ed.tilt, ed.k]);
+  ed.draw = []; ed.shape = idx; ed.w = r3(nz.w); ed.d = r3(nz.d); ed.rot = 0; ed.dirty = true;
+  edited();
+  setTool('plat'); syncUI();
+  say('Форма добавлена! Она появилась в списке форм.');
+}
+function delShape() {
+  const i = ed.shape - SHAPES.length;
+  if (i < 0) return say('Встроенные формы удалить нельзя');
+  if (L.plats.some((a) => (a[5] ?? 0) === ed.shape)) return say('Форма используется: сначала сотрите платформы с ней');
+  pushHist();
+  L.shapes.splice(i, 1);
+  L.plats.forEach((a) => { if (a[5] > ed.shape) a[5]--; });
+  ed.shape = 0; ed.dirty = true;
+  edited();
+}
+
+function markShape() {
+  document.querySelectorAll('#shapes button').forEach((b) => b.classList.toggle('on', +b.dataset.shape === ed.shape));
+  $('shapename').textContent = shapeDef(ed.shape).name;
+  $('btnDelShape').disabled = ed.shape < SHAPES.length;
+}
+function refreshShapeButtons() {
+  const holder = $('shapes'), n = shapeCount();
+  holder.textContent = '';
+  for (let i = 0; i < n; i++) {
+    const b = document.createElement('button'), def = shapeDef(i);
+    b.className = 'btn'; b.dataset.shape = i; b.textContent = def.icon; b.title = def.name; b.onclick = () => setShape(i);
+    holder.append(b);
+  }
+  if (ed.shape >= n) { ed.shape = 0; ed.dirty = true; }
+  markShape();
+}
+function setShape(i) {
+  ed.shape = i; ed.dirty = true; setTool('plat'); markShape();
+}
+
+const TOOL_ICONS = { plat: '▬', coin: '●', goal: '★', start: '⌂', erase: '✖', cp: '⚑', draw: '✎' };
+TOOLS.forEach(([id, name], i) => {
+  const b = document.createElement('button');
+  b.className = 'slot'; b.dataset.tool = id; b.title = `${name} (${i + 1})`;
+  b.innerHTML = `<span class="n">${i + 1}</span><span class="ic">${TOOL_ICONS[id]}</span><span class="nm">${name}</span>`;
+  b.onclick = () => setTool(id);
+  $('tools').append(b);
+});
+
+// ---------- Переключение меню ----------
+function showMenu(screen) {
+  menuOpen = !!screen; menuScreen = screen || 'main';
+  document.body.classList.toggle('menu', menuOpen);
+  if (screen) document.querySelectorAll('.screen').forEach((el) => el.classList.toggle('on', el.id === 'scr-' + screen));
+  if (menuOpen) { for (const k in keys) keys[k] = false; jumpBuf = 0; }
+  if (screen === 'main') $('mPlay').textContent = introDone ? 'Продолжить' : 'Играть';
+  if (screen === 'work') loadWork();
+  // Инициализируем превью персонажа при первом открытии экрана
+  if (screen === 'char') initCharPreview();
+}
+const toggleMenu = () => showMenu(menuOpen ? null : 'main');
+
+function setTab(t) {
+  if (t === 'work') return showMenu('work');
+  showMenu(null);
+  const e = t === 'edit';
+  helpers.visible = marker.visible = e;
+  outlines.forEach((o) => (o.visible = e));
+  if (!e) { setHover(null); ed.over = false; cancelDraw(); }
+  dragonRoot.visible = dust.visible = !e;
+  document.body.classList.toggle('editing', e);
+  $('help').textContent = e ? HELP_EDIT : HELP_PLAY;
+  cv.style.cursor = e ? 'crosshair' : '';
+  if (e !== (mode === 'edit')) {
+    mode = e ? 'edit' : 'play';
+    scene.fog.near = e ? 80 : 24; scene.fog.far = e ? 420 : 150;
+    setFar(e ? 600 : 250);
+    if (e) {
+      player.visible = shadow.visible = false;
+      setGoalOpen(true);
+      msg.style.display = 'none';
+      $('ename').value = L.name; syncLevelUI();
+      ed.tx = L.start[0]; ed.tz = L.start[2]; ed.h = L.start[1]; ed.ty = ed.h;
+      hist.length = 0; syncUI(); fitView();
+    } else { player.visible = true; testRun = true; reset(); }
+  }
+}
+function play(lv) {
+  lv.shapes = lv.shapes || []; lv.cps = lv.cps || []; lv.theme = lv.theme | 0; lv.req = !!lv.req;
+  L = lv; buildLevel(L); hist.length = 0;
+  $('lvname').textContent = L.name; $('seed').value = L.seed ?? '';
+  if (L.seed) { $('seedStyle').value = L.style || 'mix'; $('seedDiff').value = L.diff || 2; }
+  syncLevelUI();
+  const wasEdit = mode === 'edit';
+  setTab('play');
+  testRun = false;
+  if (!wasEdit) reset();
+}
+
+async function copyLink() {
+  const base = location.href.split('#')[0];
+  const link = L.seed ? `${base}#S=${encodeURIComponent(L.seed)}&T=${L.style || 'mix'}&D=${L.diff || 2}` : `${base}#L=${enc(L)}`;
+  try { await navigator.clipboard.writeText(link); say('Ссылка скопирована'); } catch { prompt('Скопируйте ссылку:', link); }
+}
+const ghRepo = () => ({
+  owner: location.hostname.endsWith('github.io') ? location.hostname.split('.')[0] : 'OWNER',
+  repo: location.pathname.split('/')[1] || 'REPO',
+});
+
+async function loadWork() {
+  const list = $('worklist'), { owner, repo } = ghRepo();
+  list.textContent = 'Загрузка…';
+  try {
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues?labels=workshop&state=open&per_page=50`);
+    if (!res.ok) throw new Error(res.status);
+    const items = [];
+    for (const it of await res.json()) {
+      if (it.pull_request) continue;
+      const m = /```level\s+([\w-]+)\s+```/.exec(it.body || '');
+      const lv = m && dec(m[1]);
+      if (lv) items.push({ lv, author: it.user.login, likes: (it.reactions && it.reactions['+1']) || 0, url: it.html_url });
+    }
+    items.sort((a, b) => b.likes - a.likes);
+    list.textContent = items.length ? '' : 'Пока пусто. Станьте первым!';
+    for (const it of items) {
+      const row = document.createElement('div'); row.className = 'item';
+      const b = document.createElement('button'); b.className = 'btn';
+      b.textContent = `${it.lv.name} · ${it.author} · 👍${it.likes}`;
+      b.onclick = () => play(it.lv);
+      const a = document.createElement('a'); a.href = it.url; a.target = '_blank'; a.textContent = '↗';
+      row.append(b, a); list.append(row);
+    }
+  } catch { list.textContent = 'Не удалось загрузить Мастерскую (она работает на GitHub Pages).'; }
+}
+
+// ---------- Привязки кнопок ----------
+$('mPlay').onclick = () => { introDone = true; showMenu(null); };
+$('mLevels').onclick = () => showMenu('levels');
+$('mEdit').onclick = () => { introDone = true; setTab('edit'); };
+$('mWork').onclick = () => showMenu('work');
+$('mChar').onclick = () => showMenu('char');
+$('mSet').onclick = () => showMenu('settings');
+$('mCtl').onclick = () => showMenu('controls');
+document.querySelectorAll('.back').forEach((b) => (b.onclick = () => showMenu('main')));
+document.querySelectorAll('.openmenu').forEach((b) => (b.onclick = toggleMenu));
+$('btnProps').onclick = () => document.body.classList.toggle('noprops');
+document.addEventListener('click', (e) => { if (e.target.tagName === 'BUTTON') e.target.blur(); });
+document.querySelectorAll('.link').forEach((b) => (b.onclick = copyLink));
+const genLevel = (seed) => generate(seed, $('seedStyle').value, +$('seedDiff').value, THEMES.length);
+$('btnSeed').onclick = () => play(genLevel($('seed').value.trim() || 'default'));
+$('btnRand').onclick = () => { const s = Math.random().toString(36).slice(2, 8); $('seed').value = s; play(genLevel(s)); };
+$('btnClassic').onclick = () => play(classic());
+$('btnCode').onclick = () => { const lv = dec($('code').value.trim()); lv ? play(lv) : say('Код не подходит'); };
+$('btnTest').onclick = () => setTab('play');
+$('btnNew').onclick = () => {
+  pushHist();
+  L = { name: 'Мой уровень', plats: [[0, 0, 0, 6, 6]], coins: [], cps: [], shapes: [], req: false, theme: 0, goal: [0, 1.6, -8], start: [0, 0, 0] };
+  buildLevel(L); setGoalOpen(true); $('ename').value = L.name; $('lvname').textContent = L.name; syncLevelUI();
+  hist.length = 0; ed.tx = 0; ed.tz = 0; ed.h = 0; syncUI(); fitView();
+};
+$('btnWork').onclick = loadWork;
+$('btnUndo').onclick = undo;
+$('camTop').onclick = () => { ed.pitch = 1.5; };
+$('camSide').onclick = () => { ed.pitch = 0.12; };
+$('camFit').onclick = fitView;
+$('btnDrawDone').onclick = finishDraw;
+$('btnDrawUndo').onclick = undoDrawPoint;
+$('btnDrawCancel').onclick = cancelDraw;
+$('btnDelShape').onclick = delShape;
+$('btnReset').onclick = () => { if (!confirm('Сбросить все рекорды?')) return; save.best = {}; persist(); };
+$('btnSubmit').onclick = () => {
+  const { owner, repo } = ghRepo();
+  const body = `Название: ${L.name}\n\n\`\`\`level\n${enc(L)}\n\`\`\`\n`;
+  window.open(`https://github.com/${owner}/${repo}/issues/new?title=${encodeURIComponent('[Уровень] ' + L.name)}&body=${encodeURIComponent(body)}`, '_blank');
+  say('Нажмите Submit new issue на GitHub');
+};
+const num = (id, lo, hi, fn) => {
+  $(id).oninput = (e) => { const x = parseFloat(e.target.value); if (Number.isFinite(x)) { fn(Math.max(lo, Math.min(hi, x))); ed.dirty = true; } };
+};
+num('edw', 1, 30, (x) => (ed.w = x));
+num('edd', 1, 30, (x) => (ed.d = x));
+num('edrot', -720, 720, (x) => (ed.rot = x));
+num('edtilt', -60, 60, (x) => (ed.tilt = x));
+num('edk', 0.25, 20, (x) => (ed.k = x));
+num('edh', -300, 300, (x) => (ed.h = x));
+$('edstep').onchange = (e) => { ed.step = +e.target.value; e.target.blur(); };
+$('edsnap').onchange = (e) => { ed.snap = e.target.checked; e.target.blur(); };
+$('edreq').onchange = (e) => { L.req = e.target.checked; L.seed = null; L.id = null; L.style = null; e.target.blur(); };
+$('edtheme').onchange = (e) => { L.theme = +e.target.value; edited(); e.target.blur(); };
+$('ename').oninput = (e) => { L.name = e.target.value.slice(0, 40); $('lvname').textContent = L.name; };
+
+for (const [k, n] of Object.entries(STYLES)) $('seedStyle').add(new Option(n, k));
+for (const [k, n] of Object.entries(DIFFS)) $('seedDiff').add(new Option(n, k));
+THEMES.forEach((t, i) => $('edtheme').add(new Option(t.name, i)));
+$('seedDiff').value = 2;
+$('qualitySel').value = QUALITY; $('fpsSel').value = String(FPS_CAP);
+$('fpsSel').onchange = (e) => { FPS_CAP = +e.target.value; save.fps = FPS_CAP; persist(); e.target.blur(); };
+$('qualitySel').onchange = (e) => {
+  save.quality = e.target.value; persist();
+  if (save.quality === QUALITY) return;
+  if (mode === 'edit' && !confirm('Страница перезагрузится. Уровень сохранится в ссылке, но отмена действий пропадёт. Продолжить?')) { e.target.value = QUALITY; save.quality = QUALITY; persist(); return; }
+  location.hash = L.id === 'classic' ? '' : L.seed ? `S=${encodeURIComponent(L.seed)}&T=${L.style || 'mix'}&D=${L.diff || 2}` : `L=${enc(L)}`;
+  location.reload();
+};
+
+// ---------- Скин ----------
+SKINS.forEach((sk, i) => $('skinSel').add(new Option(sk.name, i)));
+$('skinSel').add(new Option('Свои цвета', 'custom'));
+{
+  const ids = { legs: 'skLegs', shirt: 'skShirt', head: 'skHead', cap: 'skCap', belt: 'skBelt' };
+  const readColors = () => Object.fromEntries(SKIN_KEYS.map((k) => [k, parseInt($(ids[k]).value.slice(1), 16)]));
+  for (const k of SKIN_KEYS) $(ids[k]).oninput = () => customSkin(readColors());
+  $('skinSel').onchange = (e) => {
+    const v = e.target.value;
+    if (v === 'custom') customSkin(save.skin && save.skin.colors ? save.skin.colors : Object.fromEntries(SKIN_KEYS.map((k) => [k, skin[k]])));
+    else chooseSkin(+v);
+    e.target.blur();
+  };
+  $('btnSkinRand').onclick = () => {
+    const c = new THREE.Color(), h = Math.random(), col = (dh, sat, lig) => { c.setHSL((h + dh) % 1, sat, lig); return c.getHex(); };
+    customSkin({ legs: col(0.5, 0.6, 0.35), shirt: col(0, 0.75, 0.5), head: col(0.08 + Math.random() * 0.02, 0.6, 0.78), cap: col(0.33, 0.7, 0.45), belt: col(0.16, 0.5, 0.3) });
+  };
+  const sv = save.skin;
+  if (sv && sv.id === 'custom' && sv.colors) chooseSkin('custom');
+  else chooseSkin(sv && Number.isInteger(sv.id) && SKINS[sv.id] ? sv.id : 0);
+}
+
+function loadHash() {
+  const h = location.hash.slice(1);
+  if (h.startsWith('S=')) {
+    const q = new URLSearchParams(h);
+    play(generate(q.get('S'), q.get('T') || 'mix', +q.get('D') || 2, THEMES.length));
+  } else if (h.startsWith('L=')) { const lv = dec(h.slice(2)); if (lv) play(lv); else say('Ссылка на уровень повреждена'); }
+}
+addEventListener('hashchange', loadHash);
+
+// ---------- Главный цикл ----------
+const clock = new THREE.Clock();
+let frameAcc = 0;
+function loop() {
+  requestAnimationFrame(loop);
+  frameAcc += clock.getDelta();
+  if (FPS_CAP && frameAcc < (1 / FPS_CAP) * 0.9) return;
+  const dt = Math.min(frameAcc, 0.05);
+  frameAcc = 0;
+  clockT += dt;
+
+  if (!menuOpen) {
+    if (mode === 'play') update(dt); else updateEdit(dt);
+  }
+
+  // Рендерим превью персонажа, когда открыт его экран
+  if (menuOpen && menuScreen === 'char') renderPreview(dt);
+
+  updateDragons(dt, clockT);
+  clouds.update(dt, clockT, camera.position);
+  if (composer) composer.render(); else renderer.render(scene, camera);
+}
+
+// ---------- Старт ----------
+setTool('plat'); syncUI();
+play(classic());
+loadHash();
+update(1e-4);
+showMenu('main');
+loop();
