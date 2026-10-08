@@ -1,347 +1,465 @@
+<!-- index.html -->
 <!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>N64 Parkour</title>
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
   <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;image-rendering:pixelated;}
-    html,body{height:100%;background:#000;overflow:hidden;color:#fff;font-family:'Press Start 2P','Courier New',monospace;}
-    canvas{display:block;width:100vw;height:100vh;image-rendering:pixelated;touch-action:none;}
-    #hud,#msg,#help,#toast,#edinfo{pointer-events:none;}
-
-    /* HUD */
-    #hud{position:fixed;left:12px;top:10px;font-size:10px;text-shadow:2px 2px 0 #000;white-space:pre;line-height:1.9;}
-    #edinfo{position:fixed;left:12px;top:10px;display:none;font-size:8px;text-shadow:2px 2px 0 #000;white-space:pre;line-height:1.9;}
-
-    /* WIN SCREEN */
-    #msg{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.78);}
-    .msg-box{
-      background:#000;border:4px solid #ffd800;
-      box-shadow:0 0 0 2px #000,6px 6px 0 2px #ffd800;
-      padding:28px 36px;text-align:center;
-      font-size:13px;line-height:2.4;text-shadow:2px 2px 0 #000;max-width:82vw;
+    /* ================================================
+       N64 PARKOUR — PIXEL ART UI
+       Острые углы, pixel-shadow, VT323, яркие цвета
+    ================================================ */
+    :root {
+      --c-bg:     #060612;
+      --c-panel:  #0c0c22;
+      --c-yellow: #ffe000;
+      --c-red:    #ff2233;
+      --c-green:  #00cc55;
+      --c-blue:   #2244ee;
+      --c-cyan:   #00ccff;
+      --c-purple: #cc33ff;
+      --c-orange: #ff8800;
+      --c-white:  #f0f0ff;
+      --c-grey:   #7788aa;
+      --c-gold:   #ffd800;
+      /* pixel art эффекты */
+      --px-shadow: 4px 4px 0 #000;
+      --ol: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+      /* legacy compat */
+      --navy:#0a1236; --blue:#2a4bd7; --gold:#ffd800; --red:#e60012; --green:#00a651;
     }
 
-    /* TOAST */
-    #toast{
-      position:fixed;left:50%;top:14%;transform:translateX(-50%);
-      max-width:72vw;text-align:center;font-size:10px;
-      color:#ffd800;text-shadow:2px 2px 0 #000;
-      background:#000;border:3px solid #ffd800;box-shadow:4px 4px 0 #000;
-      padding:8px 18px;opacity:0;transition:opacity .25s;
+    html, body {
+      margin: 0; height: 100%;
+      background: #000; overflow: hidden;
+      color: var(--c-white);
+      font-family: 'VT323', 'Courier New', monospace;
+      font-size: 20px; font-weight: normal;
+      -webkit-font-smoothing: none;
+      -moz-osx-font-smoothing: grayscale;
     }
-    #toast.show{opacity:1;}
+    canvas { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; touch-action: none; }
+    button, input, select { font: inherit; box-sizing: border-box; -webkit-font-smoothing: none; }
+    #hud, #msg, #help, #toast, #edinfo { pointer-events: none; }
 
-    /* HELP */
-    #help{position:fixed;left:12px;bottom:10px;max-width:calc(100% - 340px);font-size:7px;line-height:1.9;text-shadow:1px 1px 0 #000;color:#666;}
-
-    /* ═══════════ PANEL ═══════════ */
-    #panel{
-      position:fixed;right:10px;top:10px;
-      width:310px;max-height:calc(100% - 20px);
-      overflow:hidden;background:#080808;
-      border:4px solid #333;box-shadow:6px 6px 0 #000;
+    /* -------- КНОПКИ -------- */
+    .btn {
+      display: block; width: 100%; margin: 5px 0; padding: 8px 14px;
+      cursor: pointer; color: #000; text-align: center;
+      text-transform: uppercase; letter-spacing: 2px; font-size: 18px;
+      font-family: 'VT323', 'Courier New', monospace;
+      background: var(--c-yellow);
+      border: 3px solid #000; border-radius: 0;
+      box-shadow: var(--px-shadow); outline: none;
+      position: relative;
     }
-    #panel.hide{display:none;}
+    .btn::before { content: ''; }
+    .btn:hover { background: var(--c-white); transform: translate(-1px,-1px); box-shadow: 5px 5px 0 #000; }
+    .btn:hover::before { content: '▶ '; }
+    .btn:active { transform: translate(3px,3px); box-shadow: 1px 1px 0 #000; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: var(--px-shadow); }
+    .btn.on { background: var(--c-green); color: #000; }
+    .btn.red { background: var(--c-red); color: var(--c-white); box-shadow: 4px 4px 0 #660000; }
+    .btn.red:hover { background: #ff6677; color: #000; }
+    .btn.small { display: inline-block; width: auto; margin: 0; padding: 5px 10px; font-size: 16px; }
+    .btn.sq { display: grid; place-items: center; width: 42px; height: 42px; padding: 0; margin: 0; font-size: 20px; letter-spacing: 0; }
+    .btn.sq:hover::before, .btn.small:hover::before { content: ''; }
+    .row { display: flex; gap: 8px; }
+    .row > * { flex: 1; min-width: 0; }
+    .grid { display: grid; gap: 6px; }
+    .g2 { grid-template-columns: 1fr 1fr; }
+    .g3 { grid-template-columns: 1fr 1fr 1fr; }
+    .g5 { grid-template-columns: repeat(5,1fr); }
 
-    /* Scanlines overlay */
-    #panel::after{
-      content:'';position:absolute;inset:0;pointer-events:none;z-index:500;
-      background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.13) 3px,rgba(0,0,0,.13) 4px);
+    /* -------- ПОЛЯ -------- */
+    label { display: block; margin: 8px 0 2px; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; color: var(--c-cyan); text-shadow: 1px 1px 0 #000; }
+    label.chk { display: flex; align-items: center; gap: 8px; color: var(--c-white); }
+    label.chk input { width: 18px; height: 18px; accent-color: var(--c-yellow); }
+    input, select {
+      width: 100%; padding: 6px 8px; margin-top: 2px;
+      background: #000; color: var(--c-white);
+      border: 3px solid var(--c-yellow); border-radius: 0;
+      font-size: 18px; font-family: 'VT323','Courier New',monospace; outline: none;
+    }
+    input:focus, select:focus { border-color: var(--c-cyan); }
+    input[type=color] { padding: 0; height: 32px; cursor: pointer; }
+    input[type=checkbox] { width: auto; }
+    .hint { font-size: 16px; line-height: 1.4; opacity: .75; font-weight: normal; color: var(--c-grey); text-shadow: 1px 1px 0 #000; }
+    .sub { margin: 14px 0 4px; color: var(--c-yellow); font-size: 18px; text-transform: uppercase; letter-spacing: 2px; text-shadow: var(--ol); padding-bottom: 2px; border-bottom: 2px solid var(--c-yellow); }
+    .item { display: flex; align-items: center; gap: 6px; }
+    .item a { padding: 0 8px; color: var(--c-yellow); text-decoration: none; font-size: 20px; }
+
+    /* -------- HUD -------- */
+    #hud {
+      position: fixed; right: 10px; top: 10px; min-width: 140px; padding: 8px 12px;
+      font-size: 22px; text-shadow: var(--ol);
+      background: var(--c-panel); border: 3px solid var(--c-yellow); border-radius: 0;
+      box-shadow: var(--px-shadow);
+    }
+    .hrow { display: flex; align-items: center; gap: 8px; line-height: 1.6; white-space: nowrap; }
+    .hrow.dim { font-size: 18px; opacity: .85; }
+    .hrow em { font-style: normal; font-size: 14px; color: var(--c-red); }
+    .ico { display: inline-block; width: 18px; height: 18px; flex: none; }
+    .ico.coin { border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff6a0, #ffd800 55%, #b88a00); border: 2px solid #000; }
+    .ico.clock { border-radius: 50%; border: 3px solid #fff; background: radial-gradient(#000 25%, transparent 26%); box-shadow: 0 0 0 2px #000; }
+    .ico.star::before { content: "★"; color: var(--c-gold); font-size: 20px; line-height: 18px; text-shadow: var(--ol); }
+    #hCp { display: none; color: var(--c-green); font-size: 16px; }
+    body.cp #hCp { display: flex; }
+    body.editing #hud { display: none; }
+
+    /* -------- TOP LEFT -------- */
+    #topleft { position: fixed; left: 10px; top: 10px; display: flex; gap: 8px; z-index: 5; }
+    #edinfo {
+      position: fixed; left: 10px; top: 62px; display: none;
+      font-size: 14px; text-shadow: var(--ol); white-space: pre; line-height: 1.45;
+      background: rgba(6,6,18,.9); border: 2px solid var(--c-yellow);
+      padding: 4px 8px; box-shadow: 3px 3px 0 #000;
+    }
+    body.editing #edinfo { display: block; }
+
+    /* -------- EDITOR BAR -------- */
+    #edbar {
+      position: fixed; left: 50%; top: 10px; transform: translateX(-50%);
+      display: none; gap: 6px; padding: 6px; z-index: 5;
+      background: var(--c-panel); border: 3px solid var(--c-yellow); border-radius: 0;
+      box-shadow: var(--px-shadow);
+    }
+    body.editing #edbar { display: flex; }
+
+    /* -------- HOTBAR -------- */
+    #hotbar {
+      position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
+      display: none; padding: 3px; z-index: 5;
+      background: rgba(8,8,20,.92); border: 4px solid #000; outline: 3px solid #4a4a60; border-radius: 0;
+    }
+    body.editing #hotbar { display: block; }
+    #tools { display: flex; gap: 3px; }
+    .slot {
+      position: relative; width: 58px; height: 58px; padding: 0; cursor: pointer;
+      color: #fff; text-shadow: var(--ol);
+      background: #242434; border: 3px solid #141424; border-radius: 0;
+      box-shadow: inset 0 0 0 1px #3a3a50;
+    }
+    .slot:hover { background: #323248; }
+    .slot.on { border-color: var(--c-yellow); outline: 3px solid #fff; z-index: 1; background: #404055; }
+    .slot .n { position: absolute; left: 3px; top: 1px; font-size: 12px; opacity: .8; }
+    .slot .ic { display: block; font-size: 22px; line-height: 36px; margin-top: 6px; }
+    .slot .nm { position: absolute; left: 0; right: 0; bottom: 2px; font-size: 9px; letter-spacing: 0; text-transform: uppercase; overflow: hidden; white-space: nowrap; }
+    .slot[data-tool=coin] .ic { color: var(--c-yellow); }
+    .slot[data-tool=goal] .ic { color: #fff07a; }
+    .slot[data-tool=start] .ic { color: #ff5555; }
+    .slot[data-tool=erase] .ic { color: #ff3344; }
+    .slot[data-tool=cp] .ic { color: var(--c-green); }
+    .slot[data-tool=draw] .ic { color: var(--c-cyan); }
+
+    /* -------- EDITOR PROPS -------- */
+    #props {
+      position: fixed; right: 8px; top: 68px; bottom: 96px; width: 280px;
+      overflow: auto; padding: 10px; display: none; z-index: 4;
+      background: var(--c-panel); border: 3px solid var(--c-yellow); border-radius: 0;
+      box-shadow: var(--px-shadow); font-size: 16px;
+    }
+    body.editing:not(.noprops) #props { display: block; }
+    #props .btn { font-size: 15px; padding: 6px 8px; }
+    #shapes .btn { font-size: 18px; padding: 4px 0; margin: 0; text-shadow: none; letter-spacing: 0; }
+    #shapes .btn:hover::before { content: ''; }
+    #shapename { color: var(--c-yellow); margin: 4px 0; font-size: 15px; text-shadow: var(--ol); }
+
+    /* -------- HELP / STATUS / TOAST -------- */
+    #help { position: fixed; left: 10px; bottom: 10px; max-width: 26vw; font-size: 14px; line-height: 1.4; font-weight: normal; text-shadow: 1px 1px 0 #000; }
+    body.editing #help { bottom: 96px; }
+    #status {
+      position: fixed; left: 50%; bottom: 88px; transform: translateX(-50%);
+      max-width: 70vw; padding: 6px 14px; text-align: center;
+      font-size: 18px; color: var(--c-yellow); text-shadow: var(--ol);
+      background: var(--c-panel); border: 3px solid var(--c-yellow); border-radius: 0;
+      box-shadow: var(--px-shadow); pointer-events: none; z-index: 6;
+    }
+    #status:empty { display: none; }
+    #toast {
+      position: fixed; left: 50%; top: 16%; transform: translateX(-50%);
+      max-width: 70vw; text-align: center;
+      font-size: 26px; color: var(--c-yellow); text-shadow: var(--ol);
+      background: rgba(6,6,18,.94); border: 3px solid var(--c-yellow);
+      padding: 6px 18px; box-shadow: var(--px-shadow);
+      opacity: 0; transition: opacity .2s; pointer-events: none;
+    }
+    #toast.show { opacity: 1; }
+    #msg {
+      position: fixed; inset: 0; display: none;
+      align-items: center; justify-content: center;
+      text-align: center; font-size: 32px; line-height: 1.5;
+      text-shadow: 3px 3px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+      background: rgba(0,0,0,.65);
     }
 
-    /* Title bar */
-    #ptitle{
-      background:#0d0d0d;border-bottom:3px solid #222;
-      padding:8px;font-size:9px;color:#ffd800;
-      text-align:center;letter-spacing:3px;text-shadow:2px 2px 0 #000;
+    /* -------- МЕНЮ -------- */
+    #menu {
+      position: fixed; inset: 0; display: none;
+      flex-direction: column; align-items: center; justify-content: center; z-index: 20;
+      background: rgba(4,4,16,.88);
+      /* Pixel scanlines */
+      background-image: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,.1) 3px, rgba(0,0,0,.1) 4px);
+    }
+    body.menu #menu { display: flex; }
+    .logo {
+      margin: 0 0 16px;
+      font-size: clamp(32px,7vw,64px); letter-spacing: 4px;
+      text-shadow: 4px 4px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;
+      text-align: center; font-family: 'VT323','Courier New',monospace;
+    }
+    .screen {
+      display: none; width: min(440px,92vw); max-height: 80vh; overflow: auto;
+      padding: 14px 16px;
+      background: var(--c-panel); border: 4px solid var(--c-yellow); border-radius: 0;
+      box-shadow: 8px 8px 0 #000;
+    }
+    .screen.on { display: block; }
+    .screen h2 {
+      margin: 0 0 10px; font-size: 24px; text-align: center;
+      color: var(--c-yellow); text-transform: uppercase;
+      text-shadow: var(--ol); letter-spacing: 3px;
+      border-bottom: 3px solid var(--c-yellow); padding-bottom: 6px;
+    }
+    .screen .btn.back { margin-top: 14px; }
+    #scr-main .btn { font-size: 20px; padding: 11px; letter-spacing: 2px; }
+
+    /* Цветные кнопки главного меню */
+    #mPlay   { background: var(--c-green); }
+    #mLevels { background: var(--c-blue);   color: var(--c-white); }
+    #mEdit   { background: var(--c-purple); color: var(--c-white); }
+    #mWork   { background: var(--c-orange); }
+    #mChar   { background: var(--c-cyan); }
+    #mSet    { background: #556677; color: var(--c-white); }
+    #mCtl    { background: #445566; color: var(--c-white); }
+    #scr-main .btn:hover { background: var(--c-white); color: #000; }
+
+    .keys { width: 100%; border-collapse: collapse; font-size: 16px; font-weight: normal; }
+    .keys td { padding: 3px 6px; border-bottom: 2px solid rgba(255,255,255,.12); vertical-align: top; }
+    .keys td:first-child { color: var(--c-yellow); white-space: nowrap; font-weight: bold; padding-right: 10px; }
+
+    /* -------- ЭКРАН ПЕРСОНАЖА -------- */
+    .char-layout { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .char-preview-box {
+      width: 192px; height: 256px;
+      border: 3px solid var(--c-yellow); border-radius: 0;
+      box-shadow: 4px 4px 0 #000;
+      background: var(--c-bg); overflow: hidden;
+      image-rendering: pixelated; flex-shrink: 0;
+      position: relative;
+    }
+    .char-preview-box canvas {
+      display: block !important;
+      width: 100% !important; height: 100% !important;
+      image-rendering: pixelated;
+    }
+    .char-preview-box .pv-placeholder {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: var(--c-grey); text-align: center; padding: 8px;
+    }
+    .char-controls { width: 100%; }
+
+    /* На широком экране — превью слева, настройки справа */
+    @media (min-width: 480px) {
+      #scr-char { width: min(580px,92vw) !important; }
+      .char-layout { flex-direction: row; align-items: flex-start; }
+      .char-controls { flex: 1; }
     }
 
-    /* Scrollable area */
-    #pscroll{max-height:calc(100vh - 96px);overflow-y:auto;overflow-x:hidden;padding:7px 8px;}
-    #pscroll::-webkit-scrollbar{width:7px;}
-    #pscroll::-webkit-scrollbar-track{background:#0d0d0d;}
-    #pscroll::-webkit-scrollbar-thumb{background:#2a2a2a;border:2px solid #000;}
-
-    /* ── TABS ── */
-    #tabs{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:3px solid #000;}
-    #tabs button{
-      font-family:'Press Start 2P','Courier New',monospace;
-      font-size:7px;padding:7px 2px;
-      border:none;border-right:2px solid #000;
-      cursor:pointer;color:#555;background:#0d0d0d;
-      line-height:1.5;text-transform:uppercase;transition:none;
+    @media (max-width: 900px) {
+      #props { width: 220px; }
+      #help { display: none; }
+      .slot { width: 46px; height: 50px; }
+      .slot .nm { display: none; }
     }
-    #tabs button:last-child{border-right:none;}
-    #tabs button:hover:not(.on){color:#999;background:#141414;}
-
-    /* Tab accent colors */
-    #tabs [data-tab="play"].on   {background:#002200;color:#00ee44;border-bottom:3px solid #00cc33;}
-    #tabs [data-tab="edit"].on   {background:#00003a;color:#6699ff;border-bottom:3px solid #4466ee;}
-    #tabs [data-tab="char"].on   {background:#2a0038;color:#ff66ff;border-bottom:3px solid #cc33ff;}
-    #tabs [data-tab="store"].on  {background:#332200;color:#ffd800;border-bottom:3px solid #cc9900;}
-    #tabs [data-tab="work"].on   {background:#2e0000;color:#ff5555;border-bottom:3px solid #cc2222;}
-    #tabs [data-tab="settings"].on{background:#1a1a1a;color:#aaaaaa;border-bottom:3px solid #777;}
-
-    /* ── PANES ── */
-    .pane{display:none;}
-
-    /* ── PIXEL BUTTON ── */
-    .pb{
-      font-family:'Press Start 2P','Courier New',monospace;font-size:8px;
-      display:block;width:100%;padding:8px 6px;margin:3px 0;
-      background:#151515;color:#bbb;
-      border:3px solid #3a3a3a;box-shadow:3px 3px 0 #000;
-      cursor:pointer;text-align:center;text-transform:uppercase;line-height:1.4;
-    }
-    .pb:hover{border-color:#eee;color:#fff;}
-    .pb:active:not(:disabled){box-shadow:0 0 0;transform:translate(3px,3px);}
-    .pb:disabled{opacity:.38;cursor:not-allowed;}
-    .pb:disabled:active{box-shadow:3px 3px 0 #000;transform:none;}
-    .pb.on{background:#ffd800;color:#000;border-color:#fff;}
-
-    /* Color variants */
-    .pb.g {background:#001800;border-color:#007700;color:#00cc33;}
-    .pb.g:hover{background:#002800;border-color:#00dd44;}
-    .pb.b {background:#000028;border-color:#2244cc;color:#5577ff;}
-    .pb.b:hover{background:#00003a;border-color:#5577ff;}
-    .pb.y {background:#221800;border-color:#aa7700;color:#ffd800;}
-    .pb.y:hover{background:#332200;border-color:#ffd800;}
-    .pb.r {background:#220000;border-color:#aa1111;color:#ff5555;}
-    .pb.r:hover{background:#330000;border-color:#ff3333;}
-    .pb.p {background:#1a0028;border-color:#881acc;color:#dd55ff;}
-    .pb.p:hover{background:#280038;border-color:#cc44ff;}
-
-    /* ── INPUT ── */
-    .pi{
-      font-family:'Press Start 2P','Courier New',monospace;font-size:8px;
-      width:100%;padding:7px 6px;background:#000;color:#eee;
-      border:3px solid #333;box-shadow:inset 2px 2px 0 #000;
-      outline:none;line-height:1.4;
-    }
-    .pi:focus{border-color:#ffd800;}
-    select.pi{cursor:pointer;}
-
-    /* ── LABEL ── */
-    .lbl{display:block;font-size:7px;color:#555;margin:6px 0 2px;text-transform:uppercase;letter-spacing:1px;}
-
-    /* ── SECTION HEADER ── */
-    .sec{font-size:8px;color:#ffd800;border-bottom:2px solid #222;padding:3px 0;margin:10px 0 5px;text-transform:uppercase;text-shadow:1px 1px 0 #000;}
-
-    /* ── LEVEL NAME ── */
-    #lvname{font-size:9px;color:#00ee44;margin-bottom:8px;padding:6px;background:#001200;border:2px solid #006622;box-shadow:2px 2px 0 #000;text-align:center;line-height:1.7;word-break:break-all;}
-
-    /* ── GRIDS ── */
-    .g2{display:grid;grid-template-columns:1fr 1fr;gap:3px;margin:3px 0;}
-    .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;margin:3px 0;}
-    .g5{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;margin:3px 0;}
-    .g2>.pb,.g3>.pb,.g5>.pb{margin:0;}
-
-    /* Shapes */
-    #shapes button{
-      font-size:15px;line-height:1;padding:5px 2px;margin:0;
-      background:#0d0d0d;border:2px solid #2a2a2a;box-shadow:2px 2px 0 #000;
-      cursor:pointer;color:#ccc;text-align:center;
-    }
-    #shapes button:hover{border-color:#aaa;}
-    #shapes button.on{background:#001530;border-color:#3355cc;color:#77aaff;}
-
-    /* Tools */
-    #tools button{
-      font-family:'Press Start 2P','Courier New',monospace;font-size:6px;
-      padding:6px 2px;margin:0;background:#0d0d0d;
-      border:2px solid #2a2a2a;box-shadow:2px 2px 0 #000;
-      cursor:pointer;color:#666;text-align:center;text-transform:uppercase;line-height:1.5;
-    }
-    #tools button:hover{border-color:#ccc;color:#ccc;}
-    #tools button.on{background:#001228;border-color:#2255bb;color:#5588ff;}
-
-    /* ── WALLET ── */
-    .wallet-box{text-align:center;padding:10px;background:#0d0d0d;border:3px solid #664400;box-shadow:4px 4px 0 #000;margin-bottom:8px;}
-    .wallet-lbl{font-size:7px;color:#555;margin-bottom:4px;}
-    .wallet-amt{font-size:18px;color:#ffd800;text-shadow:2px 2px 0 #000;}
-
-    /* ── UPGRADES ── */
-    .upg{margin:6px 0;padding:8px;border:2px solid #222244;box-shadow:2px 2px 0 #000;background:#030310;}
-    .upt{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
-    .uname{font-size:9px;color:#ddd;}
-    .ulv{font-size:7px;color:#5577ff;}
-    .bar{height:8px;background:#0d0d0d;border:2px solid #1a1a1a;margin:4px 0;}
-    .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#ffd800,#ff8800);}
-    .upd{font-size:7px;color:#555;margin:3px 0;line-height:1.8;}
-
-    /* ── WORKSHOP ITEMS ── */
-    .witem{display:flex;align-items:center;gap:4px;margin:3px 0;padding:5px;background:#0d0d0d;border:2px solid #1a1a1a;}
-    .witem:hover{border-color:#333;}
-    .witem>.pb{flex:1;margin:0;font-size:7px;}
-    .witem>a{font-family:'Press Start 2P','Courier New',monospace;font-size:8px;padding:5px 7px;color:#ffd800;text-decoration:none;background:#110d00;border:2px solid #664400;flex-shrink:0;}
-
-    /* ── CHARACTER EDITOR ── */
-    #charPreview{display:block;width:180px;height:268px;margin:0 auto 10px;border:3px solid #5500aa;box-shadow:4px 4px 0 #000;image-rendering:pixelated;background:#080012;}
-    .char-name-d{text-align:center;padding:6px;font-size:11px;color:#dd66ff;background:#0e0018;border:2px solid #5500aa;box-shadow:2px 2px 0 #000;margin-bottom:8px;text-shadow:0 0 10px #aa44ff;}
-    .crow{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:4px 0;}
-    .citem{padding:6px;border:2px solid #1a1a1a;background:#0d0d0d;}
-    .clbl{font-size:7px;color:#555;margin-bottom:4px;display:block;}
-    input[type=color]{width:100%;height:26px;border:2px solid #333;background:#000;cursor:pointer;padding:1px;display:block;}
-    input[type=color]:focus{border-color:#aa44ff;}
-
-    /* ── SETTINGS ── */
-    .chk{display:flex;align-items:center;gap:8px;font-size:8px;color:#888;margin:7px 0;cursor:pointer;}
-    .chk input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:#ffd800;flex-shrink:0;}
-    .chk:hover{color:#ddd;}
-
-    /* ── SHAPE NAME ── */
-    #shapename{font-size:8px;color:#5577ff;margin:4px 0;text-align:center;text-shadow:0 0 6px #3355cc;}
-
-    /* ── STATUS BAR ── */
-    #status{min-height:18px;padding:4px 8px;font-size:7px;color:#ffd800;border-top:2px solid #1a1a1a;background:#050505;text-align:center;line-height:1.9;}
-
-    /* ── HINT ── */
-    .hint{font-size:7px;color:#444;line-height:2;margin:6px 0;padding:5px 6px;border-left:2px solid #1a1a1a;}
-
-    /* ── ROW ── */
-    .row{display:flex;gap:4px;}
-    .row>*{flex:1;min-width:0;}
   </style>
 </head>
 <body>
   <div id="game"></div>
-  <div id="hud"></div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hrow"><i class="ico coin"></i><span id="hCoins">0/0</span><em id="hNeed"></em></div>
+    <div class="hrow"><i class="ico clock"></i><span id="hTime">0.0</span></div>
+    <div class="hrow dim"><i class="ico star"></i><span id="hBest">--</span></div>
+    <div class="hrow" id="hCp">⚑ ЧЕКПОИНТ</div>
+  </div>
   <div id="edinfo"></div>
   <div id="toast"></div>
-  <div id="msg"><div class="msg-box" id="msg-inner"></div></div>
+  <div id="msg"></div>
   <div id="help"></div>
+  <div id="status"></div>
 
-  <div id="panel">
-    <div id="ptitle">★ N64 PARKOUR ★</div>
-    <div id="tabs">
-      <button data-tab="play">🎮 ИГРА</button>
-      <button data-tab="edit">🔧 РЕД.</button>
-      <button data-tab="char">👤 ПЕРС.</button>
-      <button data-tab="store">🛒 МАГ.</button>
-      <button data-tab="work">🏭 МАС.</button>
-      <button data-tab="settings">⚙ НАС.</button>
+  <!-- Кнопки поверх игры -->
+  <div id="topleft"><button class="btn sq openmenu" title="Меню (Esc)">☰</button></div>
+
+  <!-- Редактор: верхняя панель, хотбар, параметры -->
+  <div id="edbar">
+    <button class="btn small" id="btnUndo">↶ Отмена</button>
+    <button class="btn small" id="camTop">Сверху</button>
+    <button class="btn small" id="camSide">Сбоку</button>
+    <button class="btn small" id="camFit">Вся карта</button>
+    <button class="btn small red" id="btnTest">▶ Играть</button>
+    <button class="btn small" id="btnProps">⚙ Параметры</button>
+  </div>
+  <div id="hotbar"><div id="tools"></div></div>
+
+  <div id="props">
+    <div class="sub" style="margin-top:0">Уровень</div>
+    <input id="ename" maxlength="40" placeholder="Название уровня">
+    <label class="chk"><input type="checkbox" id="edreq"> Монеты обязательны</label>
+    <label>Тема платформ <select id="edtheme"></select></label>
+
+    <div class="sub">Форма платформы (R — повернуть)</div>
+    <div class="grid g5" id="shapes"></div>
+    <div id="shapename"></div>
+    <button class="btn" id="btnDelShape">Удалить свою форму</button>
+    <div id="drawbox" style="display:none">
+      <div class="sub">Рисование формы</div>
+      <p class="hint" id="drawinfo"></p>
+      <div class="row"><button class="btn" id="btnDrawDone">Замкнуть</button><button class="btn" id="btnDrawUndo">Убрать точку</button></div>
+      <button class="btn red" id="btnDrawCancel">Отмена (Esc)</button>
     </div>
-    <div id="pscroll">
 
-      <!-- ════ ИГРА ════ -->
-      <div class="pane" id="pane-play">
-        <div id="lvname">ЗАГРУЗКА...</div>
-        <div class="sec">📌 Уровень по сиду</div>
-        <span class="lbl">Слово или число</span>
-        <input class="pi" id="seed" placeholder="лунный_кот">
-        <div class="g2" style="margin-top:4px">
-          <button class="pb g" id="btnSeed">▶ ИГРАТЬ</button>
-          <button class="pb" id="btnRand">🎲 СЛУЧ.</button>
-        </div>
-        <div class="sec">🏛 Встроенные</div>
-        <button class="pb y" id="btnClassic">⭐ КЛАССИКА</button>
-        <div class="sec">📋 Код уровня</div>
-        <input class="pi" id="code" placeholder="вставьте код...">
-        <button class="pb b" id="btnCode">📥 ЗАГРУЗИТЬ КОД</button>
-        <button class="pb link">🔗 СКОПИРОВАТЬ ССЫЛКУ</button>
-        <p class="hint">Соберите все монеты → возьмите звезду. Монеты за победу идут в кошелёк.</p>
+    <div class="sub">Размер и положение</div>
+    <div class="grid g2">
+      <label>Ширина <input id="edw" type="number" value="3" min="1" max="30" step="0.5"></label>
+      <label>Глубина <input id="edd" type="number" value="3" min="1" max="30" step="0.5"></label>
+      <label>Поворот ° <input id="edrot" type="number" value="0" step="15"></label>
+      <label>Наклон ° <input id="edtilt" type="number" value="0" min="-60" max="60" step="5"></label>
+      <label>Толщина <input id="edk" type="number" value="1" min="0.25" max="20" step="0.5"></label>
+      <label>Высота <input id="edh" type="number" value="0" step="0.5"></label>
+    </div>
+    <label>Шаг сетки
+      <select id="edstep">
+        <option value="0.25">0.25</option>
+        <option value="0.5" selected>0.5</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+      </select>
+    </label>
+    <label class="chk"><input type="checkbox" id="edsnap" checked> Прилипать к верху платформ</label>
+
+    <div class="sub">Файл</div>
+    <button class="btn" id="btnNew">Новый пустой уровень</button>
+    <button class="btn link">Скопировать ссылку</button>
+    <button class="btn" id="btnSubmit">Отправить в Мастерскую</button>
+  </div>
+
+  <!-- Меню -->
+  <div id="menu">
+    <h1 class="logo"><span style="color:#e60012">N</span><span style="color:#00a651">6</span><span style="color:#ffd800">4</span> <span style="color:#7aa2ff">PARKOUR</span></h1>
+
+    <div class="screen on" id="scr-main">
+      <button class="btn" id="mPlay">Играть</button>
+      <button class="btn" id="mLevels">Выбор уровня</button>
+      <button class="btn" id="mEdit">Редактор уровней</button>
+      <button class="btn" id="mWork">Мастерская</button>
+      <button class="btn" id="mChar">Персонаж</button>
+      <button class="btn" id="mSet">Настройки</button>
+      <button class="btn" id="mCtl">Управление</button>
+    </div>
+
+    <div class="screen" id="scr-levels">
+      <h2>Выбор уровня</h2>
+      <div id="lvname" class="sub" style="text-align:center;margin-top:0"></div>
+      <button class="btn" id="btnClassic">Классический уровень</button>
+      <div class="sub">Сгенерировать</div>
+      <label>Сид <input id="seed" placeholder="любое слово или число"></label>
+      <div class="row">
+        <label>Стиль <select id="seedStyle"></select></label>
+        <label>Сложность <select id="seedDiff"></select></label>
       </div>
+      <div class="row"><button class="btn" id="btnSeed">По сиду</button><button class="btn" id="btnRand">Случайный</button></div>
+      <div class="sub">Свой код</div>
+      <input id="code" placeholder="вставьте код уровня">
+      <button class="btn" id="btnCode">Загрузить код</button>
+      <button class="btn link">Скопировать ссылку на уровень</button>
+      <p class="hint">Цель: добраться до звезды. Флажки — чекпоинты. Монеты необязательны, если автор уровня не включил «Монеты обязательны».</p>
+      <button class="btn back">Назад</button>
+    </div>
 
-      <!-- ════ РЕДАКТОР ════ -->
-      <div class="pane" id="pane-edit">
-        <span class="lbl">Название уровня</span>
-        <input class="pi" id="ename" maxlength="40" placeholder="Мой уровень">
-        <div class="sec">🔨 Инструмент (1–5)</div>
-        <div class="g3" id="tools"></div>
-        <div class="sec">🧱 Форма (R: повернуть)</div>
-        <div class="g5" id="shapes"></div>
-        <div id="shapename">Прямоугольник</div>
-        <div class="g2" style="margin-top:6px">
-          <label><span class="lbl">Ширина</span><input class="pi" id="edw" type="number" value="3" min="1" max="30" step="0.5"></label>
-          <label><span class="lbl">Глубина</span><input class="pi" id="edd" type="number" value="3" min="1" max="30" step="0.5"></label>
-          <label><span class="lbl">Поворот °</span><input class="pi" id="edrot" type="number" value="0" step="15"></label>
-          <label><span class="lbl">Наклон °</span><input class="pi" id="edtilt" type="number" value="0" min="-60" max="60" step="5"></label>
-          <label><span class="lbl">Толщина</span><input class="pi" id="edk" type="number" value="1" min="0.25" max="20" step="0.5"></label>
-          <label><span class="lbl">Высота</span><input class="pi" id="edh" type="number" value="0" step="0.5"></label>
+    <!-- Экран персонажа: 3D-превью слева, настройки справа -->
+    <div class="screen" id="scr-char">
+      <h2>Персонаж</h2>
+      <div class="char-layout">
+        <div id="charPreview" class="char-preview-box">
+          <div class="pv-placeholder">Загрузка…</div>
         </div>
-        <span class="lbl">Шаг сетки</span>
-        <select class="pi" id="edstep">
-          <option value="0.25">0.25</option>
-          <option value="0.5" selected>0.5</option>
-          <option value="1">1</option>
-          <option value="2">2</option>
+        <div class="char-controls">
+          <label>Скин <select id="skinSel"></select></label>
+          <div class="grid g3">
+            <label>Поножи <input type="color" id="skLegs"></label>
+            <label>Латы <input type="color" id="skShirt"></label>
+            <label>Шлем <input type="color" id="skHead"></label>
+            <label>Плюмаж <input type="color" id="skCap"></label>
+            <label>Пояс <input type="color" id="skBelt"></label>
+          </div>
+          <button class="btn" id="btnSkinRand">Случайная раскраска</button>
+        </div>
+      </div>
+      <button class="btn back">Назад</button>
+    </div>
+
+    <div class="screen" id="scr-settings">
+      <h2>Настройки</h2>
+      <label>Качество графики
+        <select id="qualitySel">
+          <option value="light">Лёгкая (как N64)</option>
+          <option value="high">Красивая (PBR, отражения, SSAO)</option>
         </select>
-        <label class="chk" style="margin-top:6px">
-          <input type="checkbox" id="edsnap" checked> Прилипать к верху платформ
-        </label>
-        <div class="sec">📷 Камера</div>
-        <div class="g3">
-          <button class="pb" id="camTop">⬆ СВЕРХУ</button>
-          <button class="pb" id="camSide">➡ СБОКУ</button>
-          <button class="pb" id="camFit">🔍 ВСЯ</button>
-        </div>
-        <button class="pb" id="btnUndo">↩ ОТМЕНА (Ctrl+Z)</button>
-        <div class="sec">💾 Уровень</div>
-        <button class="pb g" id="btnTest">▶ ТЕСТ УРОВНЯ</button>
-        <button class="pb" id="btnNew">📄 НОВЫЙ</button>
-        <button class="pb link">🔗 СКОПИРОВАТЬ ССЫЛКУ</button>
-        <button class="pb r" id="btnSubmit">📤 В МАСТЕРСКУЮ</button>
-        <p class="hint">ЛКМ тянуть: камера. ПКМ/СКМ: двигать. Колесо: зум. Shift+колесо / Z/X: высота. F: вся карта.</p>
-      </div>
+      </label>
+      <label>Лимит кадров
+        <select id="fpsSel">
+          <option value="30">30 (самое экономное)</option>
+          <option value="60">60</option>
+          <option value="0">Без лимита</option>
+        </select>
+      </label>
+      <button class="btn red" id="btnReset">Сбросить рекорды</button>
+      <button class="btn back">Назад</button>
+    </div>
 
-      <!-- ════ ПЕРСОНАЖ ════ -->
-      <div class="pane" id="pane-char">
-        <div class="char-name-d" id="charNameD">ИГРОК</div>
-        <canvas id="charPreview" width="180" height="268"></canvas>
-        <span class="lbl">Имя персонажа</span>
-        <input class="pi" id="charName" maxlength="16" placeholder="ИГРОК" style="margin-bottom:6px">
-        <div class="sec">🎨 Цвета</div>
-        <div class="crow">
-          <div class="citem"><span class="clbl">🔴 Рубашка</span><input type="color" id="cShirt" value="#d32f2f"></div>
-          <div class="citem"><span class="clbl">🔵 Штаны</span><input type="color" id="cPants" value="#1565c0"></div>
-          <div class="citem"><span class="clbl">🟡 Кожа</span><input type="color" id="cSkin" value="#ffcc99"></div>
-          <div class="citem"><span class="clbl">⚫ Обувь</span><input type="color" id="cShoes" value="#4e342e"></div>
-        </div>
-        <div class="sec">👒 Головной убор</div>
-        <div class="g3" id="hatBtns"></div>
-        <div style="margin-top:8px">
-          <button class="pb g" id="btnSaveChar">💾 СОХРАНИТЬ</button>
-          <button class="pb" id="btnResetChar">🔄 СБРОСИТЬ</button>
-        </div>
-        <p class="hint">Нажми «Сохранить» — персонаж обновится в игре.</p>
-      </div>
+    <div class="screen" id="scr-controls">
+      <h2>Управление</h2>
+      <div class="sub">Игра</div>
+      <table class="keys">
+        <tr><td>WASD</td><td>бег</td></tr>
+        <tr><td>Пробел</td><td>прыжок</td></tr>
+        <tr><td>Q / E, стрелки, мышь</td><td>камера (мышь — с зажатой кнопкой)</td></tr>
+        <tr><td>R</td><td>начать заново</td></tr>
+        <tr><td>Esc / M</td><td>меню</td></tr>
+      </table>
+      <div class="sub">Редактор</div>
+      <table class="keys">
+        <tr><td>1–7</td><td>инструмент (хотбар)</td></tr>
+        <tr><td>ЛКМ клик</td><td>поставить</td></tr>
+        <tr><td>ЛКМ тянуть</td><td>вращать камеру</td></tr>
+        <tr><td>ПКМ тянуть</td><td>двигать камеру</td></tr>
+        <tr><td>ПКМ клик</td><td>стереть</td></tr>
+        <tr><td>Колесо</td><td>приблизить / отдалить</td></tr>
+        <tr><td>Shift+колесо, Z / X</td><td>высота плоскости построения</td></tr>
+        <tr><td>R / Shift+R</td><td>повернуть платформу</td></tr>
+        <tr><td>F</td><td>вся карта</td></tr>
+        <tr><td>Ctrl+Z</td><td>отмена</td></tr>
+        <tr><td>Своя форма</td><td>клики → Enter/первая точка: замкнуть; Backspace/ПКМ: убрать точку; Esc: отмена</td></tr>
+      </table>
+      <button class="btn back">Назад</button>
+    </div>
 
-      <!-- ════ МАГАЗИН ════ -->
-      <div class="pane" id="pane-store">
-        <div class="wallet-box">
-          <div class="wallet-lbl">КОШЕЛЁК</div>
-          <div class="wallet-amt">🪙 <span id="wallet">0</span></div>
-        </div>
-        <div id="upgrades"></div>
-        <p class="hint">Монеты: собери все + возьми звезду. Тест уровня монет не даёт.</p>
-        <button class="pb r" id="btnReset">⚠ СБРОСИТЬ ПРОГРЕСС</button>
-      </div>
-
-      <!-- ════ МАСТЕРСКАЯ ════ -->
-      <div class="pane" id="pane-work">
-        <button class="pb" id="btnWork">🔄 ОБНОВИТЬ СПИСОК</button>
-        <div id="worklist" style="margin-top:6px"></div>
-        <p class="hint">Уровни игроков. Лайк: нажмите 👍 на странице Issue (↗).</p>
-      </div>
-
-      <!-- ════ НАСТРОЙКИ ════ -->
-      <div class="pane" id="pane-settings">
-        <div class="sec">🖥 Графика</div>
-        <label class="chk"><input type="checkbox" id="stSSAO" checked> Тени (SSAO)</label>
-        <label class="chk"><input type="checkbox" id="stFog" checked> Туман</label>
-        <label class="chk"><input type="checkbox" id="stDragons" checked> Драконы</label>
-        <label class="chk"><input type="checkbox" id="stClouds" checked> Облака</label>
-        <label class="chk"><input type="checkbox" id="stTint" checked> Цветные платформы</label>
-        <div class="sec">ℹ О игре</div>
-        <p class="hint">N64 Parkour v1.0<br>Three.js + Vite<br><br>M — скрыть/показать меню<br>R — начать заново</p>
-      </div>
-
-    </div><!-- /pscroll -->
-    <div id="status"></div>
-  </div><!-- /panel -->
+    <div class="screen" id="scr-work">
+      <h2>Мастерская</h2>
+      <button class="btn" id="btnWork">Обновить список</button>
+      <div id="worklist"></div>
+      <p class="hint">Уровни игроков. Лайк: нажмите 👍 на странице Issue (значок ↗).</p>
+      <button class="btn back">Назад</button>
+    </div>
+  </div>
 
   <script type="module" src="/src/main.js"></script>
 </body>
